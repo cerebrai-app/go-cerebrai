@@ -1,0 +1,16 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+permissions:
+  contents: read
+
+jobs:
+  ci:
+    # Pinned to the cerebrai-app/actions commit that adds go-ci.yml, which is
+    # not in a release yet. Once it is, pin to that release's commit with the
+    # tag as a comment (`@<sha> # v1.1.0`) so Renovate can keep it current.
+    uses: cerebrai-app/actions/.github/workflows/go-ci.yml@b749c995cde7760a0d82b0edf9235000dcc3d529

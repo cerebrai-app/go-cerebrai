@@ -1,0 +1,45 @@
+name: Claude Code Review
+
+on:
+  pull_request:
+    types: [opened, synchronize, ready_for_review, reopened]
+
+# The two reviews are separate jobs so they run in parallel and one failing
+# doesn't stop the other.
+jobs:
+  ponytail-review:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      pull-requests: read
+      issues: read
+      id-token: write
+    steps:
+      - uses: cerebrai-app/actions/ponytail-review@57b263623437524d4a872fe0b268b94e96d0b046 # v1.0.0
+        with:
+          claude-code-oauth-token: ${{ secrets.CLAUDE_CODE_OAUTH_TOKEN }}
+
+  claude-review:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      pull-requests: read
+      issues: read
+      id-token: write
+    steps:
+      - uses: cerebrai-app/actions/claude-review@57b263623437524d4a872fe0b268b94e96d0b046 # v1.0.0
+        with:
+          claude-code-oauth-token: ${{ secrets.CLAUDE_CODE_OAUTH_TOKEN }}
+
+  # A separate job on purpose: it needs write access to comments, and the job
+  # that runs the third-party plugin should not have that. It runs only after a
+  # successful review, so a failed review never hides the last report.
+  minimize-old-ponytail-reviews:
+    needs: ponytail-review
+    if: ${{ needs.ponytail-review.result == 'success' }}
+    runs-on: ubuntu-latest
+    permissions:
+      issues: write
+      pull-requests: write
+    steps:
+      - uses: cerebrai-app/actions/minimize-ponytail-reviews@57b263623437524d4a872fe0b268b94e96d0b046 # v1.0.0
