@@ -23,18 +23,18 @@ its own to version.
 
 Tagged releases publish both programs on the
 [Releases page](https://github.com/cerebrai-app/go-cerebrai/releases), as
-`<program>-v<version>-<os>-<arch>.tar.gz` (`.zip` for Windows) with a `.sha256` file each, for
+`<program>-v<version>-<os>-<arch>.tar.gz` (`.zip` for Windows) with one `checksums.txt`, for
 `linux/amd64`, `linux/arm64`, `darwin/amd64`, `darwin/arm64` and `windows/amd64`. The Linux
 binaries are static and run on any distribution.
 
 ```sh
-gh release download --repo cerebrai-app/go-cerebrai --pattern 'brainctl-*-linux-amd64.tar.gz*'
-sha256sum -c brainctl-*.tar.gz.sha256
+gh release download --repo cerebrai-app/go-cerebrai --pattern 'brainctl-*-linux-amd64.tar.gz' --pattern checksums.txt
+sha256sum --ignore-missing -c checksums.txt
 tar xzf brainctl-*.tar.gz
 install -m 755 brainctl-*/brainctl ~/.local/bin/    # any directory on your PATH
 ```
 
-On macOS, use `shasum -a 256 -c` in place of `sha256sum -c`.
+On macOS, use `shasum -a 256 --ignore-missing -c` in place of `sha256sum --ignore-missing -c`.
 
 ### With Go
 
@@ -118,5 +118,12 @@ git tag v0.1.0 && git push origin v0.1.0
 ```
 
 The `Release` workflow checks that the tag is on `main`, runs the tests, builds both programs for
-every platform, checks that each Linux x86_64 binary reports the tag's version, and publishes one
-GitHub Release with all the archives.
+every platform with [GoReleaser](https://goreleaser.com) (configured in
+[`.goreleaser.yaml`](.goreleaser.yaml)), checks that each Linux x86_64 binary reports the tag's
+version, and publishes one GitHub Release with all the archives and `checksums.txt`. To try a
+change to the config locally:
+
+```sh
+goreleaser check
+goreleaser release --snapshot --clean --skip=publish   # writes dist/
+```
