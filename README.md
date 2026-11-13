@@ -1,6 +1,7 @@
 # go-cerebrai
 
-Shared Go code for the cerebrai-app command line programs.
+Shared Go code for the cerebrai-app command line programs: the Go counterpart of
+[cerebrai-crates](https://github.com/cerebrai-app/cerebrai-crates).
 
 ```sh
 go get github.com/cerebrai-app/go-cerebrai@latest
