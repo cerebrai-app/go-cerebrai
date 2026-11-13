@@ -25,7 +25,7 @@ jobs:
     # Pinned to the cerebrai-app/actions commit that adds attestations and the
     # Homebrew/Scoop publishing, which is not in a release yet. Once it is, pin
     # to that release's commit with the tag as a comment (`@<sha> # v3.0.0`).
-    uses: cerebrai-app/actions/.github/workflows/go-release.yml@312418cd6c913bf0127e13ef1bc05d85b7b2472f
+    uses: cerebrai-app/actions/.github/workflows/go-release.yml@7cd561a1a3bded1c8ad8ff51f335cae31cdb959d
     permissions:
       contents: write # create the release
       id-token: write # sign the build attestations
