@@ -16,7 +16,11 @@ concurrency:
 
 jobs:
   ci:
-    # Pinned to the cerebrai-app/actions commit that adds go-ci.yml, which is
-    # not in a release yet. Once it is, pin to that release's commit with the
-    # tag as a comment (`@<sha> # v1.1.0`) so Renovate can keep it current.
-    uses: cerebrai-app/actions/.github/workflows/go-ci.yml@b749c995cde7760a0d82b0edf9235000dcc3d529
+    # Pinned to the cerebrai-app/actions commit with the multi-program Go
+    # workflows, which are not in a release yet. Once they are, pin to that
+    # release's commit with the tag as a comment (`@<sha> # v1.1.0`) so
+    # Renovate can keep it current.
+    uses: cerebrai-app/actions/.github/workflows/go-ci.yml@26f248df798e644cdfcb17db4fdbbd385ef30908
+    with:
+      main-packages: ./cmd/brainctl ./cmd/workctl
+      smoke-test-args: version

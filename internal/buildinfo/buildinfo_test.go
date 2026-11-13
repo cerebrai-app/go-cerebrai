@@ -58,7 +58,7 @@ func TestLinkerFlag(t *testing.T) {
 		bin += ".exe"
 	}
 	build := exec.Command("go", "build", "-o", bin,
-		"-ldflags", "-X github.com/cerebrai-app/go-cerebrai/buildinfo.version=9.8.7",
+		"-ldflags", "-X github.com/cerebrai-app/go-cerebrai/internal/buildinfo.version=9.8.7",
 		"./testdata/printversion")
 	build.Env = append(os.Environ(), "CGO_ENABLED=0")
 	if out, err := build.CombinedOutput(); err != nil {

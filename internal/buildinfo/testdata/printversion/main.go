@@ -4,7 +4,7 @@ package main
 import (
 	"fmt"
 
-	"github.com/cerebrai-app/go-cerebrai/buildinfo"
+	"github.com/cerebrai-app/go-cerebrai/internal/buildinfo"
 )
 
 func main() {
