@@ -1,0 +1,7 @@
+{
+  "$schema": "https://docs.renovatebot.com/renovate-schema.json",
+  "extends": ["config:recommended", "helpers:pinGitHubActionDigests"],
+  "description": "Keeps the Go modules and the pinned cerebrai-app/actions actions and workflows up to date.",
+  "enabledManagers": ["gomod", "github-actions"],
+  "postUpdateOptions": ["gomodTidy"]
+}

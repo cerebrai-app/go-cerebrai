@@ -1,0 +1,51 @@
+# GoReleaser config for brainctl and workctl, used by the shared go-release.yml
+# workflow (see .github/workflows/release.yml). Both programs share the tag's
+# version. Check changes with `goreleaser check` and
+# `goreleaser release --snapshot --clean --skip=publish`.
+version: 2
+
+builds:
+  - &build
+    id: brainctl
+    main: ./cmd/brainctl
+    binary: brainctl
+    env: [CGO_ENABLED=0]
+    flags: [-trimpath]
+    ldflags:
+      - -s -w -X github.com/cerebrai-app/go-cerebrai/internal/buildinfo.version={{ .Version }}
+    mod_timestamp: "{{ .CommitTimestamp }}"
+    goos: [linux, darwin, windows]
+    goarch: [amd64, arm64]
+    ignore:
+      - { goos: windows, goarch: arm64 }
+  - <<: *build
+    id: workctl
+    main: ./cmd/workctl
+    binary: workctl
+
+archives:
+  - &archive
+    id: brainctl
+    ids: [brainctl]
+    name_template: "{{ .Binary }}-v{{ .Version }}-{{ .Os }}-{{ .Arch }}"
+    formats: [tar.gz]
+    format_overrides:
+      - { goos: windows, formats: [zip] }
+    wrap_in_directory: true
+    files: [README.md, LICENSE]
+  - <<: *archive
+    id: workctl
+    ids: [workctl]
+
+checksum:
+  name_template: checksums.txt
+
+snapshot:
+  version_template: 0.0.0-dev
+
+# The shared release workflow creates the GitHub Release itself, so
+# GoReleaser only builds and never needs a token that can write.
+changelog:
+  disable: true
+release:
+  disable: true

@@ -1,0 +1,22 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+permissions:
+  contents: read
+
+# One run per PR (or per branch/tag for pushes). A new commit on a PR cancels
+# its previous run; runs on main and on tags are never cancelled.
+concurrency:
+  group: ${{ github.workflow }}-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+
+jobs:
+  ci:
+    uses: cerebrai-app/actions/.github/workflows/go-ci.yml@6c7462b52d1f52725638f65225ddbec7cd076659 # v2.0.0
+    with:
+      main-packages: ./cmd/brainctl ./cmd/workctl
+      smoke-test-args: version

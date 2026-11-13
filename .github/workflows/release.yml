@@ -1,0 +1,27 @@
+name: Release
+
+# Pushing a tag like v0.1.0 builds brainctl and workctl for each platform with
+# GoReleaser (.goreleaser.yaml) and publishes them together in one GitHub
+# Release (see the shared go-release.yml). Pull requests that change this file
+# or .goreleaser.yaml build a snapshot and publish nothing, so a change is
+# checked before a release.
+on:
+  push:
+    tags: ["v*"]
+  pull_request:
+    paths: [".github/workflows/release.yml", ".goreleaser.yaml"]
+
+permissions:
+  contents: read
+
+# One run per PR (or per branch/tag for pushes). A new commit on a PR cancels
+# its previous run; runs on main and on tags are never cancelled.
+concurrency:
+  group: ${{ github.workflow }}-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+
+jobs:
+  release:
+    uses: cerebrai-app/actions/.github/workflows/go-release.yml@6c7462b52d1f52725638f65225ddbec7cd076659 # v2.0.0
+    permissions:
+      contents: write # the publish job creates the release
