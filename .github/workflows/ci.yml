@@ -16,7 +16,7 @@ concurrency:
 
 jobs:
   ci:
-    uses: cerebrai-app/actions/.github/workflows/go-ci.yml@fc8276cb9f2ede323a356ea1510bdb407574bdc6 # v1.1.0
+    uses: cerebrai-app/actions/.github/workflows/go-ci.yml@6c7462b52d1f52725638f65225ddbec7cd076659 # v2.0.0
     with:
       main-packages: ./cmd/brainctl ./cmd/workctl
       smoke-test-args: version

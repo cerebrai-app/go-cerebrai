@@ -22,9 +22,6 @@ concurrency:
 
 jobs:
   release:
-    # Pinned to the cerebrai-app/actions commit that moves releases to
-    # GoReleaser, which is not in a release yet. Once it is, pin to that
-    # release's commit with the tag as a comment (`@<sha> # v2.0.0`).
-    uses: cerebrai-app/actions/.github/workflows/go-release.yml@a4cffa1901d97e83c7961a618bb4924f99049045
+    uses: cerebrai-app/actions/.github/workflows/go-release.yml@6c7462b52d1f52725638f65225ddbec7cd076659 # v2.0.0
     permissions:
       contents: write # the publish job creates the release
