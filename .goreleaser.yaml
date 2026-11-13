@@ -1,6 +1,9 @@
 # GoReleaser config for brainctl and workctl, used by the shared go-release.yml
 # workflow (see .github/workflows/release.yml). Both programs share the tag's
-# version. Check changes with `goreleaser check` and
+# version. The workflow publishes the GitHub Release itself, then reruns
+# GoReleaser to push the Homebrew casks and Scoop manifests, so the archives
+# must rebuild byte for byte (mod_timestamp, -trimpath, fixed archive mtimes).
+# Check changes with `goreleaser check` and
 # `goreleaser release --snapshot --clean --skip=publish`.
 version: 2
 
@@ -32,7 +35,15 @@ archives:
     format_overrides:
       - { goos: windows, formats: [zip] }
     wrap_in_directory: true
-    files: [README.md, LICENSE]
+    # Fixed timestamps, so a rebuild of the same commit gives byte-identical
+    # archives (the publish job relies on it; see go-release.yml).
+    builds_info:
+      mtime: "{{ .CommitDate }}"
+    files:
+      - src: README.md
+        info: { mtime: "{{ .CommitDate }}" }
+      - src: LICENSE
+        info: { mtime: "{{ .CommitDate }}" }
   - <<: *archive
     id: workctl
     ids: [workctl]
@@ -49,3 +60,61 @@ changelog:
   disable: true
 release:
   disable: true
+
+homebrew_casks:
+  - &cask
+    name: brainctl
+    ids: [brainctl]
+    binaries: [brainctl]
+    description: brainctl command line interface
+    homepage: https://github.com/cerebrai-app/go-cerebrai
+    license: Apache-2.0
+    url:
+      template: &url "https://github.com/cerebrai-app/go-cerebrai/releases/download/{{ .Tag }}/{{ .ArtifactName }}"
+    repository: &tap
+      owner: cerebrai-app
+      name: homebrew-tap
+      token: '{{ envOrDefault "TAP_GITHUB_TOKEN" "" }}'
+    commit_author: &author
+      name: cerebrai-release[bot]
+      email: noreply@github.com
+    commit_msg_template: "brainctl {{ .Tag }}"
+    skip_upload: auto # no prereleases
+    hooks:
+      post:
+        install_steps: |
+          on_macos do
+            run "/usr/bin/xattr", args: ["-dr", "com.apple.quarantine", "{{ .StagedPath }}/brainctl"]
+          end
+  - <<: *cask
+    name: workctl
+    ids: [workctl]
+    binaries: [workctl]
+    description: workctl command line interface
+    commit_msg_template: "workctl {{ .Tag }}"
+    hooks:
+      post:
+        install_steps: |
+          on_macos do
+            run "/usr/bin/xattr", args: ["-dr", "com.apple.quarantine", "{{ .StagedPath }}/workctl"]
+          end
+
+scoops:
+  - &scoop
+    name: brainctl
+    ids: [brainctl]
+    description: brainctl command line interface
+    homepage: https://github.com/cerebrai-app/go-cerebrai
+    license: Apache-2.0
+    url_template: *url
+    repository:
+      <<: *tap
+      name: scoop-bucket
+    commit_author: *author
+    commit_msg_template: "brainctl {{ .Tag }}"
+    skip_upload: auto
+  - <<: *scoop
+    name: workctl
+    ids: [workctl]
+    description: workctl command line interface
+    commit_msg_template: "workctl {{ .Tag }}"
