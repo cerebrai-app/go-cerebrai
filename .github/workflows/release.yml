@@ -22,6 +22,16 @@ concurrency:
 
 jobs:
   release:
-    uses: cerebrai-app/actions/.github/workflows/go-release.yml@6c7462b52d1f52725638f65225ddbec7cd076659 # v2.0.0
+    # Pinned to the cerebrai-app/actions commit that adds attestations and the
+    # Homebrew/Scoop publishing, which is not in a release yet. Once it is, pin
+    # to that release's commit with the tag as a comment (`@<sha> # v3.0.0`).
+    uses: cerebrai-app/actions/.github/workflows/go-release.yml@7cd561a1a3bded1c8ad8ff51f335cae31cdb959d
     permissions:
-      contents: write # the publish job creates the release
+      contents: write # create the release
+      id-token: write # sign the build attestations
+      attestations: write # store them
+    with:
+      tap-repositories: homebrew-tap,scoop-bucket
+    secrets:
+      tap-app-client-id: ${{ secrets.RELEASE_APP_CLIENT_ID }}
+      tap-app-private-key: ${{ secrets.RELEASE_APP_PRIVATE_KEY }}
