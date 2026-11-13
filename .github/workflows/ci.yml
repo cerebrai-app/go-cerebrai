@@ -16,11 +16,7 @@ concurrency:
 
 jobs:
   ci:
-    # Pinned to the cerebrai-app/actions commit with the multi-program Go
-    # workflows, which are not in a release yet. Once they are, pin to that
-    # release's commit with the tag as a comment (`@<sha> # v1.1.0`) so
-    # Renovate can keep it current.
-    uses: cerebrai-app/actions/.github/workflows/go-ci.yml@26f248df798e644cdfcb17db4fdbbd385ef30908
+    uses: cerebrai-app/actions/.github/workflows/go-ci.yml@fc8276cb9f2ede323a356ea1510bdb407574bdc6 # v1.1.0
     with:
       main-packages: ./cmd/brainctl ./cmd/workctl
       smoke-test-args: version

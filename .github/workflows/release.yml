@@ -21,8 +21,7 @@ concurrency:
 
 jobs:
   release:
-    # Pinned like ci.yml; repin both together.
-    uses: cerebrai-app/actions/.github/workflows/go-release.yml@26f248df798e644cdfcb17db4fdbbd385ef30908
+    uses: cerebrai-app/actions/.github/workflows/go-release.yml@fc8276cb9f2ede323a356ea1510bdb407574bdc6 # v1.1.0
     permissions:
       contents: write # the publish job creates the release
     with:
