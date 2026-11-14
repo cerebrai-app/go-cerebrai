@@ -74,7 +74,9 @@ homebrew_casks:
     repository: &tap
       owner: cerebrai-app
       name: homebrew-tap
-      token: '{{ envOrDefault "TAP_GITHUB_TOKEN" "" }}'
+      # Only a bare {{ .Env.NAME }} is allowed here; the release workflow sets it
+      # when it publishes the casks and manifests.
+      token: "{{ .Env.TAP_GITHUB_TOKEN }}"
     commit_author: &author
       name: cerebrai-release[bot]
       email: noreply@github.com
