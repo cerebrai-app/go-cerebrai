@@ -146,13 +146,14 @@ func TestWorkctlInitAddsExtension(t *testing.T) {
 
 func TestWorkctlInitWithoutBrainConfig(t *testing.T) {
 	stubInstall(t, nil)
+	installed := false
+	install = func(python.Options) (string, error) { installed = true; return "", nil }
 	code, stderr := runWorkctl("init")
-	if code != 0 || !strings.Contains(stderr, "Wrote ") || !strings.Contains(stderr, "Added settings for extension app.cerebrai.workctl") {
-		t.Fatalf("got %d, %q", code, stderr)
+	if code != 1 || !strings.Contains(stderr, "run brainctl init first") || installed {
+		t.Errorf("got %d, %q, installed %v", code, stderr, installed)
 	}
-	const want = "schema_version: 1\nextensions:\n  app.cerebrai.workctl:\n    schema_version: 1\n"
-	if data, err := os.ReadFile(filepath.Join(".brain", "config.yaml")); err != nil || string(data) != want {
-		t.Errorf("config = %q, %v; want %q", data, err, want)
+	if _, err := os.Stat(".brain"); err == nil {
+		t.Error("workctl init made a .brain directory")
 	}
 }
 

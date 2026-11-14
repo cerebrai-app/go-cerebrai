@@ -94,8 +94,8 @@ file from a newer release (a higher `schema_version`) is an error, so `init` sto
 downloading anything.
 
 `workctl` is an extension of `brainctl` and shares its config file. `workctl init` adds an
-entry under `extensions`, keyed by its ID `app.cerebrai.workctl`, creating the file first if
-`brainctl init` hasn't run:
+entry under `extensions`, keyed by its ID `app.cerebrai.workctl`. Run `brainctl init` first:
+`workctl init` never creates the file, and fails before downloading anything if it is missing.
 
 ```yaml
 schema_version: 1
@@ -158,8 +158,8 @@ under `extensions` in `.brain/config.yaml`. The rules:
   the extension's settings. The extension numbers its own versions, starting at 1, independently
   of the file's `schema_version` and of other extensions.
 - **Write only your own key.** Don't change the top-level keys or another extension's settings,
-  and keep content you don't understand. If the file is missing, create it with
-  `schema_version: 1` first.
+  and keep content you don't understand. Never create the file: if it is
+  missing, fail and ask the user to run `brainctl init`.
 - **Check the versions.** Refuse a file whose top-level `schema_version` is newer than you know
   (currently `1`), and settings whose `schema_version` is newer than your release reads, rather
   than misreading them.
@@ -185,10 +185,8 @@ type settings struct {
 }
 
 path := brainconfig.Path(projectDir)
-// Create the file if it is missing, then add your key if it is missing.
-if _, err := brainconfig.Init(path); err != nil {
-	return err
-}
+// Add your key if it is missing. A missing file is an error matching
+// brainconfig.ErrNoConfig, which asks the user to run brainctl init.
 if _, err := brainconfig.AddExtension(path, "com.example.tool", 3); err != nil {
 	return err
 }

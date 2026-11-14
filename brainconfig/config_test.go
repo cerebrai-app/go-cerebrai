@@ -1,6 +1,7 @@
 package brainconfig
 
 import (
+	"errors"
 	"os"
 	"path/filepath"
 	"runtime"
@@ -113,8 +114,15 @@ func TestAddExtensionRejectsBadFile(t *testing.T) {
 	if got := readFile(t, path); got != content {
 		t.Errorf("file changed to %q", got)
 	}
-	if _, err := AddExtension(filepath.Join(t.TempDir(), "missing.yaml"), "app.cerebrai.workctl", 1); err == nil {
-		t.Error("AddExtension accepted a missing file")
+	missing := Path(t.TempDir())
+	if _, err := AddExtension(missing, "app.cerebrai.workctl", 1); !errors.Is(err, ErrNoConfig) {
+		t.Errorf("AddExtension on a missing file: %v", err)
+	}
+	if _, err := os.Stat(filepath.Dir(missing)); err == nil {
+		t.Error("AddExtension made the config directory")
+	}
+	if _, err := Load(missing); !errors.Is(err, ErrNoConfig) {
+		t.Errorf("Load on a missing file: %v", err)
 	}
 }
 

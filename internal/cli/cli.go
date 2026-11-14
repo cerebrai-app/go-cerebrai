@@ -137,23 +137,22 @@ func initWrites(prog Program) string {
 		return "Writes " + path + " in the current directory if it is missing"
 	}
 	return "Adds settings for extension " + prog.ExtensionID + " to " + path + "\n" +
-		"in the current directory (creating the file if it is missing)"
+		"in the current directory, which brainctl init must have created"
 }
 
 // initConfig makes sure the config file at path exists and, for an extension
-// of brainctl, holds the extension's key. An extension creates the file too if
-// brainctl's init has not run yet.
+// of brainctl, holds the extension's settings. Only brainctl creates the file:
+// an extension fails if brainctl init has not run yet.
 func initConfig(prog Program, path string, log io.Writer) error {
 	id := prog.ExtensionID
-	created, err := brainconfig.Init(path)
-	if err != nil {
-		return err
-	}
-	if created {
-		_, _ = fmt.Fprintf(log, "Wrote %s\n", path)
-	}
 	if id == "" {
-		if !created {
+		created, err := brainconfig.Init(path)
+		if err != nil {
+			return err
+		}
+		if created {
+			_, _ = fmt.Fprintf(log, "Wrote %s\n", path)
+		} else {
 			_, _ = fmt.Fprintf(log, "Using existing %s\n", path)
 		}
 		return nil

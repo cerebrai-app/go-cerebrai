@@ -207,7 +207,9 @@ func Init(path string) (created bool, err error) {
 }
 
 // AddExtension adds settings for the extension with ID id, holding only
-// schema_version: schemaVersion, to the config file at path, which must exist and be valid.
+// schema_version: schemaVersion, to the config file at path, which must exist
+// and be valid: an extension never creates the file, since that is brainctl
+// init's job. A missing file is an ErrNoConfig error.
 // If the extension is already there it is never replaced and added is false;
 // only its schema_version is checked (against schemaVersion as the newest),
 // since the caller knows best what else to check, with DecodeExtension. Other
@@ -219,7 +221,7 @@ func AddExtension(path, id string, schemaVersion int) (added bool, err error) {
 	if schemaVersion < 1 {
 		return false, fmt.Errorf("invalid schema version %d for extension %s: it must be at least 1", schemaVersion, id)
 	}
-	data, err := os.ReadFile(path)
+	data, err := readConfig(path)
 	if err != nil {
 		return false, err
 	}
@@ -313,9 +315,22 @@ func writeFile(path string, data []byte) error {
 	return err
 }
 
-// Load reads the config file at path.
-func Load(path string) (Config, error) {
+// ErrNoConfig is the error, matched with errors.Is, for a config file that does
+// not exist yet. Its message asks the user to run brainctl init.
+var ErrNoConfig = errors.New("no brain config file: run brainctl init first")
+
+// readConfig reads the config file at path, with ErrNoConfig if it is missing.
+func readConfig(path string) ([]byte, error) {
 	data, err := os.ReadFile(path)
+	if errors.Is(err, fs.ErrNotExist) {
+		return nil, fmt.Errorf("%s: %w", path, ErrNoConfig)
+	}
+	return data, err
+}
+
+// Load reads the config file at path. A missing file is an ErrNoConfig error.
+func Load(path string) (Config, error) {
+	data, err := readConfig(path)
 	if err != nil {
 		return Config{}, err
 	}
