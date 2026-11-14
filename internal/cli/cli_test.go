@@ -120,7 +120,7 @@ func TestWorkctlInitAddsExtension(t *testing.T) {
 		t.Fatalf("workctl init: got %d, %q", code, stderr)
 	}
 	path := filepath.Join(".brain", "config.yaml")
-	const want = "schema_version: 1\nextensions:\n  workctl: {}\n"
+	const want = "schema_version: 1\nextensions:\n  workctl:\n    schema_version: 1\n"
 	if data, err := os.ReadFile(path); err != nil || string(data) != want {
 		t.Errorf("config = %q, %v; want %q", data, err, want)
 	}
@@ -145,7 +145,7 @@ func TestWorkctlInitWithoutBrainConfig(t *testing.T) {
 	if code != 0 || !strings.Contains(stderr, "Wrote ") || !strings.Contains(stderr, "Added extensions.workctl") {
 		t.Fatalf("got %d, %q", code, stderr)
 	}
-	const want = "schema_version: 1\nextensions:\n  workctl: {}\n"
+	const want = "schema_version: 1\nextensions:\n  workctl:\n    schema_version: 1\n"
 	if data, err := os.ReadFile(filepath.Join(".brain", "config.yaml")); err != nil || string(data) != want {
 		t.Errorf("config = %q, %v; want %q", data, err, want)
 	}
@@ -176,3 +176,11 @@ func TestVersionWriteError(t *testing.T) {
 type failingWriter struct{}
 
 func (failingWriter) Write([]byte) (int, error) { return 0, io.ErrClosedPipe }
+
+func TestUnknownExtension(t *testing.T) {
+	stubInstall(t, nil)
+	var errOut strings.Builder
+	if code := Main("nopectl", []string{"init"}, io.Discard, &errOut); code != 1 || !strings.Contains(errOut.String(), "not a known extension") {
+		t.Errorf("got %d, %q", code, errOut.String())
+	}
+}

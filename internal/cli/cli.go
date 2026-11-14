@@ -117,6 +117,14 @@ func initWrites(name string) string {
 		"(creating the file if it is missing)"
 }
 
+// extensionSchemaVersions is, for each extension of brainctl, the newest
+// format of its settings in the config file (extensions.<name>.schema_version)
+// that this release writes and reads. Raise one when a change would make older
+// releases of that extension misread its settings.
+var extensionSchemaVersions = map[string]int{
+	"workctl": 1,
+}
+
 // initConfig makes sure the config file at path exists and, for an extension
 // of brainctl, holds the extension's key. An extension creates the file too if
 // brainctl's init has not run yet.
@@ -134,7 +142,11 @@ func initConfig(name, path string, log io.Writer) error {
 		}
 		return nil
 	}
-	added, err := config.AddExtension(path, name)
+	version, ok := extensionSchemaVersions[name]
+	if !ok {
+		return fmt.Errorf("%s is not a known extension of %s", name, config.Base)
+	}
+	added, err := config.AddExtension(path, name, version)
 	if err != nil {
 		return err
 	}

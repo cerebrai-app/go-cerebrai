@@ -7,11 +7,14 @@
 //
 //	schema_version: 1
 //	extensions:
-//	  workctl: {}
+//	  workctl:
+//	    schema_version: 1
 //
 // The file always carries schema_version, so a later release can tell an
 // older file apart and migrate it, and an older release refuses a file written
-// by a newer one instead of misreading it. Edits keep the file's comments and
+// by a newer one instead of misreading it. Each extension's settings carry
+// their own schema_version too, so an extension's format can change without
+// touching the file's, or brainctl's. Edits keep the file's comments and
 // the order of its keys, but not its blank lines, and re-indent it with two
 // spaces.
 package config
@@ -22,8 +25,10 @@ import (
 	"fmt"
 	"io"
 	"io/fs"
+	"math"
 	"os"
 	"path/filepath"
+	"strconv"
 
 	"go.yaml.in/yaml/v3"
 )
@@ -47,8 +52,56 @@ type Config struct {
 	// SchemaVersion is the format of the file; see the SchemaVersion constant.
 	SchemaVersion int `yaml:"schema_version"`
 	// Extensions holds each extension's settings under its program name. The
-	// brain config does not look inside them: each extension checks its own.
+	// brain config only checks that each is a mapping with a schema_version:
+	// each extension checks the rest of its own, with Config.Extension.
 	Extensions map[string]yaml.Node `yaml:"extensions,omitempty"`
+}
+
+// Extension is an extension's settings, under extensions.<program name>.
+type Extension struct {
+	// SchemaVersion is the format of the extension's settings. Each extension
+	// numbers its own formats, independently of the file's SchemaVersion.
+	SchemaVersion int `yaml:"schema_version"`
+}
+
+// Extension reads and checks the settings of the extension called name, whose
+// newest format is schemaVersion. ok is false if the extension has none.
+// Unlike Unmarshal, this rejects keys the extension does not know and a
+// schema_version newer than schemaVersion.
+func (c Config) Extension(name string, schemaVersion int) (ext Extension, ok bool, err error) {
+	node, ok := c.Extensions[name]
+	if !ok {
+		return Extension{}, false, nil
+	}
+	// yaml.Node.Decode cannot reject unknown keys, so go through a Decoder.
+	data, err := yaml.Marshal(&node)
+	if err != nil {
+		return Extension{}, true, err
+	}
+	dec := yaml.NewDecoder(bytes.NewReader(data))
+	dec.KnownFields(true)
+	if err := dec.Decode(&ext); err != nil {
+		return Extension{}, true, fmt.Errorf("invalid extensions.%s: %w", name, err)
+	}
+	if err := checkSchemaVersion("extensions."+name+".schema_version", ext.SchemaVersion, schemaVersion); err != nil {
+		return Extension{}, true, err
+	}
+	return ext, true, nil
+}
+
+// checkSchemaVersion checks the schema version got, found at key, against
+// newest, the newest this release reads.
+func checkSchemaVersion(key string, got, newest int) error {
+	switch {
+	case got == 0:
+		return fmt.Errorf("config file has no %s", key)
+	case got < 0:
+		return fmt.Errorf("config file has invalid %s %d", key, got)
+	case got > newest:
+		return fmt.Errorf("config file has %s %d, but this release reads only up to %d: upgrade to a newer release",
+			key, got, newest)
+	}
+	return nil
 }
 
 // Path is the config file in the project directory dir.
@@ -87,11 +140,12 @@ func Init(path string) (created bool, err error) {
 	return true, nil
 }
 
-// AddExtension adds an empty extensions.<name> mapping to the config file at
-// path, which must exist and be valid. It does nothing and returns false if
-// the extension is already there; its settings are never replaced. Other
+// AddExtension adds extensions.<name>, holding only schema_version:
+// schemaVersion, to the config file at path, which must exist and be valid. If
+// the extension is already there it is checked with Config.Extension but never
+// replaced, and added is false. Other
 // content and comments are kept; blank lines are not.
-func AddExtension(path, name string) (added bool, err error) {
+func AddExtension(path, name string, schemaVersion int) (added bool, err error) {
 	data, err := os.ReadFile(path)
 	if err != nil {
 		return false, err
@@ -100,8 +154,11 @@ func AddExtension(path, name string) (added bool, err error) {
 	if err != nil {
 		return false, fmt.Errorf("%s: %w", path, err)
 	}
-	if _, ok := cfg.Extensions[name]; ok {
-		return false, nil
+	if _, ok, err := cfg.Extension(name, schemaVersion); ok || err != nil {
+		if err != nil {
+			err = fmt.Errorf("%s: %w", path, err)
+		}
+		return false, err
 	}
 
 	var doc yaml.Node
@@ -120,8 +177,9 @@ func AddExtension(path, name string) (added bool, err error) {
 			HeadComment: exts.HeadComment, LineComment: exts.LineComment, FootComment: exts.FootComment}
 	}
 	exts.Style = 0 // block style, even if it was written as {}
-	exts.Content = append(exts.Content, scalar(name),
-		&yaml.Node{Kind: yaml.MappingNode, Tag: "!!map", Style: yaml.FlowStyle})
+	exts.Content = append(exts.Content, scalar(name), &yaml.Node{Kind: yaml.MappingNode, Tag: "!!map",
+		Content: []*yaml.Node{scalar("schema_version"),
+			{Kind: yaml.ScalarNode, Tag: "!!int", Value: strconv.Itoa(schemaVersion)}}})
 
 	var buf bytes.Buffer
 	enc := yaml.NewEncoder(&buf)
@@ -148,6 +206,7 @@ func mappingValue(m *yaml.Node, key string) *yaml.Node {
 	return nil
 }
 
+// scalar is a string scalar node.
 func scalar(s string) *yaml.Node {
 	return &yaml.Node{Kind: yaml.ScalarNode, Tag: "!!str", Value: s}
 }
@@ -195,8 +254,8 @@ func Load(path string) (Config, error) {
 }
 
 // Unmarshal decodes the config file's YAML and checks it: it must be one
-// mapping with a schema_version this release reads, no keys it does not know,
-// and a mapping under each extension.
+// mapping with a schema_version this release reads and no keys it does not
+// know, and each extension must be a mapping with a positive schema_version.
 func Unmarshal(data []byte) (Config, error) {
 	var cfg Config
 	dec := yaml.NewDecoder(bytes.NewReader(data))
@@ -210,18 +269,23 @@ func Unmarshal(data []byte) (Config, error) {
 	if err := dec.Decode(new(yaml.Node)); !errors.Is(err, io.EOF) {
 		return Config{}, errors.New("invalid config file: it must hold a single YAML document")
 	}
-	switch {
-	case cfg.SchemaVersion == 0:
-		return Config{}, errors.New("config file has no schema_version")
-	case cfg.SchemaVersion < 0:
-		return Config{}, fmt.Errorf("config file has invalid schema_version %d", cfg.SchemaVersion)
-	case cfg.SchemaVersion > SchemaVersion:
-		return Config{}, fmt.Errorf("config file has schema_version %d, but this release reads only up to %d: upgrade to a newer release",
-			cfg.SchemaVersion, SchemaVersion)
+	if err := checkSchemaVersion("schema_version", cfg.SchemaVersion, SchemaVersion); err != nil {
+		return Config{}, err
 	}
-	for name, ext := range cfg.Extensions {
-		if ext.Kind != yaml.MappingNode {
+	for name, node := range cfg.Extensions {
+		if node.Kind != yaml.MappingNode {
 			return Config{}, fmt.Errorf("invalid config file: extensions.%s must be a mapping", name)
+		}
+		// Only the version: the extension checks its own keys, and brainctl
+		// cannot know how new a version the extension reads.
+		var ext struct {
+			SchemaVersion int `yaml:"schema_version"`
+		}
+		if err := node.Decode(&ext); err != nil {
+			return Config{}, fmt.Errorf("invalid extensions.%s: %w", name, err)
+		}
+		if err := checkSchemaVersion("extensions."+name+".schema_version", ext.SchemaVersion, math.MaxInt); err != nil {
+			return Config{}, err
 		}
 	}
 	return cfg, nil

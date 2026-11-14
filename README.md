@@ -98,13 +98,17 @@ downloading anything.
 ```yaml
 schema_version: 1
 extensions:
-  workctl: {}
+  workctl:
+    schema_version: 1
 ```
 
-An existing `extensions.workctl` is never changed. Adding the key rewrites the file: comments and
+`extensions.workctl.schema_version` is the format of `workctl`'s own settings, numbered
+independently of the file's `schema_version`. An existing `extensions.workctl` is never changed, but
+`workctl init` checks it the same way: only known keys, and a `schema_version` this release of
+`workctl` supports. Adding the key rewrites the file: comments and
 key order are kept, but blank lines are dropped and indentation becomes two spaces. Each extension
 keeps its own settings under `extensions.<program>`. `brainctl` only checks that each one is a
-mapping.
+mapping with a positive `schema_version`; the extension checks the rest.
 
 Then it downloads a [python-build-standalone](https://github.com/astral-sh/python-build-standalone)
 distribution to `<data dir>/python-build-standalone/<version>+<build options>/` (for example
