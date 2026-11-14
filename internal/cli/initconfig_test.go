@@ -8,6 +8,7 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/cerebrai-app/go-cerebrai/brainconfig"
 	"github.com/cerebrai-app/go-cerebrai/internal/python"
 )
 
@@ -30,8 +31,12 @@ func project(t *testing.T) *int {
 	stubInstall(t, nil)
 	calls := 0
 	install = func(python.Options) (string, error) {
-		// The config file is always settled before the download starts.
-		if _, err := os.Stat(configPath); err != nil {
+		// The config file is always settled before the download starts, in
+		// the brain directory the program used.
+		dir, err := brainconfig.Dir()
+		if err != nil {
+			t.Errorf("install ran without a brain directory: %v", err)
+		} else if _, err := os.Stat(brainconfig.Path(dir)); err != nil {
 			t.Errorf("install ran without a config file: %v", err)
 		}
 		calls++
@@ -467,4 +472,129 @@ func mustGetwd(t *testing.T) string {
 		t.Fatal(err)
 	}
 	return dir
+}
+
+// brainAt makes a brain directory, points BRAIN_DIR at it, moves the test to
+// a different, empty current directory, and returns the brain directory.
+func brainAt(t *testing.T) string {
+	t.Helper()
+	brain := t.TempDir()
+	t.Setenv(brainconfig.EnvVar, brain)
+	t.Chdir(t.TempDir())
+	return brain
+}
+
+// cwdIsEmpty fails the test if init wrote anything in the current directory.
+func cwdIsEmpty(t *testing.T) {
+	t.Helper()
+	entries, err := os.ReadDir(".")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(entries) != 0 {
+		t.Errorf("wrote %d entries in the current directory, e.g. %s", len(entries), entries[0].Name())
+	}
+}
+
+func TestBrainDirFromEnvironment(t *testing.T) {
+	installs := project(t)
+	brain := brainAt(t)
+	code, stderr := runProgram(brainctl, "init")
+	path := filepath.Join(brain, ".brain", "config.yaml")
+	if code != 0 || !strings.Contains(stderr, "Wrote "+path) {
+		t.Fatalf("brainctl init: got %d, %q", code, stderr)
+	}
+	if code, stderr := runProgram(workctl, "init"); code != 0 || !strings.Contains(stderr, "Added settings for extension app.cerebrai.workctl to "+path) {
+		t.Fatalf("workctl init: got %d, %q", code, stderr)
+	}
+	data, err := os.ReadFile(path)
+	if err != nil || string(data) != withWorkctl {
+		t.Errorf("config = %q, %v; want %q", data, err, withWorkctl)
+	}
+	cwdIsEmpty(t)
+	if *installs != 2 {
+		t.Errorf("install ran %d times, want 2", *installs)
+	}
+}
+
+func TestBrainDirRelative(t *testing.T) {
+	project(t)
+	if err := os.Mkdir("notes", 0o755); err != nil {
+		t.Fatal(err)
+	}
+	t.Setenv(brainconfig.EnvVar, "notes")
+	if code, stderr := runProgram(brainctl, "init"); code != 0 {
+		t.Fatalf("got %d, %q", code, stderr)
+	}
+	if _, err := os.Stat(filepath.Join("notes", ".brain", "config.yaml")); err != nil {
+		t.Error(err)
+	}
+	if _, err := os.Stat(".brain"); err == nil {
+		t.Error("wrote .brain in the current directory")
+	}
+}
+
+// Without BRAIN_DIR, a brain elsewhere is not found: workctl looks in the
+// current directory and fails.
+func TestBrainDirUnsetUsesCurrentDirectory(t *testing.T) {
+	project(t)
+	brain := t.TempDir()
+	t.Chdir(brain)
+	if code, stderr := runProgram(brainctl, "init"); code != 0 {
+		t.Fatalf("brainctl init: got %d, %q", code, stderr)
+	}
+	t.Chdir(t.TempDir())
+	if code, stderr := runProgram(workctl, "init"); code != 1 || !strings.Contains(stderr, "run brainctl init first") {
+		t.Errorf("workctl init elsewhere: got %d, %q", code, stderr)
+	}
+	t.Setenv(brainconfig.EnvVar, brain)
+	if code, stderr := runProgram(workctl, "init"); code != 0 {
+		t.Errorf("workctl init with %s: got %d, %q", brainconfig.EnvVar, code, stderr)
+	}
+}
+
+func TestBadBrainDir(t *testing.T) {
+	for _, tt := range []struct {
+		name    string
+		dir     func(t *testing.T) string
+		wantErr string
+	}{
+		{"missing", func(t *testing.T) string { return filepath.Join(t.TempDir(), "typo") }, "BRAIN_DIR="},
+		{"a file", func(t *testing.T) string {
+			f := filepath.Join(t.TempDir(), "file")
+			if err := os.WriteFile(f, nil, 0o644); err != nil {
+				t.Fatal(err)
+			}
+			return f
+		}, "not a directory"},
+	} {
+		for _, prog := range []Program{brainctl, workctl} {
+			t.Run(tt.name+"/"+prog.Name, func(t *testing.T) {
+				installs := project(t)
+				dir := tt.dir(t)
+				t.Setenv(brainconfig.EnvVar, dir)
+				code, stderr := runProgram(prog, "init")
+				if code != 1 || !strings.HasPrefix(stderr, "error: ") || !strings.Contains(stderr, tt.wantErr) {
+					t.Errorf("got %d, %q; want an error containing %q", code, stderr, tt.wantErr)
+				}
+				if *installs != 0 {
+					t.Error("install ran after a config error")
+				}
+				if info, err := os.Stat(dir); tt.name == "missing" && err == nil {
+					t.Errorf("made %s: %v", dir, info.Mode())
+				}
+				cwdIsEmpty(t)
+			})
+		}
+	}
+}
+
+func TestUsageMentionsBrainDir(t *testing.T) {
+	for _, prog := range []Program{brainctl, workctl} {
+		for _, args := range [][]string{{"help"}, {"init", "-h"}} {
+			if _, stderr := runProgram(prog, args...); !strings.Contains(stderr, "$BRAIN_DIR") {
+				t.Errorf("%s %q does not mention $BRAIN_DIR:\n%s", prog.Name, args, stderr)
+			}
+		}
+	}
 }

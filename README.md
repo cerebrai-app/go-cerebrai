@@ -81,8 +81,21 @@ brainctl init --variant pgo+lto            # exact build options, no fallback
 
 ### `init`
 
-First, `brainctl init` writes a config file to `.brain/config.yaml` in the current directory,
-creating the directory if needed:
+First, `brainctl init` writes a config file to `.brain/config.yaml` in the brain directory,
+creating `.brain` if needed. The brain directory is `$BRAIN_DIR` if set, otherwise the current
+directory:
+
+```sh
+cd ~/notes && brainctl init               # writes ~/notes/.brain/config.yaml
+export BRAIN_DIR=~/notes                  # then, from anywhere:
+brainctl init && workctl init             # both use ~/notes/.brain/config.yaml
+```
+
+The config lives next to the brain's data so it is backed up or committed with it. `$BRAIN_DIR`
+must name an existing directory (a relative path is taken from the current directory): a typo is an
+error rather than a new, empty brain somewhere else.
+
+The new file holds:
 
 ```yaml
 schema_version: 1
@@ -146,7 +159,7 @@ the binaries themselves are static.
 ## Writing an extension
 
 Any program can be an extension of `brainctl`, without changes to `brainctl`: it adds its own key
-under `extensions` in `.brain/config.yaml`. The rules:
+under `extensions` in `.brain/config.yaml` in the brain directory. The rules:
 
 - **ID.** The key is the extension's ID: a reverse domain name for a domain its author controls,
   followed by the extension's name, so two authors never pick the same key. `workctl`, from
@@ -157,6 +170,8 @@ under `extensions` in `.brain/config.yaml`. The rules:
 - **Shape.** The value is a mapping with a `schema_version`: a positive integer for the format of
   the extension's settings. The extension numbers its own versions, starting at 1, independently
   of the file's `schema_version` and of other extensions.
+- **Find the file the same way.** The brain directory is `$BRAIN_DIR` if set (an existing
+  directory; a relative path is taken from the current directory), otherwise the current directory.
 - **Write only your own key.** Don't change the top-level keys or another extension's settings,
   and keep content you don't understand. Never create the file: if it is
   missing, fail and ask the user to run `brainctl init`.
@@ -184,7 +199,11 @@ type settings struct {
 	Color         string `yaml:"color"`
 }
 
-path := brainconfig.Path(projectDir)
+dir, err := brainconfig.Dir() // $BRAIN_DIR, or the current directory
+if err != nil {
+	return err
+}
+path := brainconfig.Path(dir)
 // Add your key if it is missing. A missing file is an error matching
 // brainconfig.ErrNoConfig, which asks the user to run brainctl init.
 if _, err := brainconfig.AddExtension(path, "com.example.tool", 3); err != nil {

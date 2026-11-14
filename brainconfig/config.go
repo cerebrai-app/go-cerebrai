@@ -1,5 +1,7 @@
 // Package brainconfig reads and writes the brain config file,
-// .brain/config.yaml in a project directory. brainctl creates it, and
+// .brain/config.yaml in the brain directory: $BRAIN_DIR if set, otherwise the
+// current directory (see Dir). Keeping it there, next to the brain's data,
+// means it is backed up or committed with the data. brainctl creates it, and
 // extensions (workctl, and programs from anyone else) add their own settings
 // to it, without brainctl having to know about them:
 //
@@ -57,7 +59,9 @@ const (
 	// newest one it reads. Raise it when a change would make older releases
 	// misread the file.
 	SchemaVersion = 1
-	// DirName is the config directory inside the project directory.
+	// EnvVar names the environment variable holding the brain directory.
+	EnvVar = "BRAIN_DIR"
+	// DirName is the config directory inside the brain directory.
 	DirName = ".brain"
 	// FileName is the config file's name inside DirName.
 	FileName = "config.yaml"
@@ -170,7 +174,30 @@ func checkSchemaVersion(where string, got, newest int) error {
 	return nil
 }
 
-// Path is the config file in the project directory dir.
+// Dir is the brain directory, which holds DirName: $BRAIN_DIR if set and not
+// empty, otherwise the current directory. $BRAIN_DIR must name an existing
+// directory, so a typo fails instead of starting a new brain elsewhere; a
+// relative path is taken from the current directory. The result is absolute.
+func Dir() (string, error) {
+	dir := os.Getenv(EnvVar)
+	if dir == "" {
+		return os.Getwd()
+	}
+	abs, err := filepath.Abs(dir)
+	if err != nil {
+		return "", fmt.Errorf("%s=%s: %w", EnvVar, dir, err)
+	}
+	info, err := os.Stat(abs)
+	if err != nil {
+		return "", fmt.Errorf("%s=%s: %w", EnvVar, dir, err)
+	}
+	if !info.IsDir() {
+		return "", fmt.Errorf("%s=%s: not a directory", EnvVar, dir)
+	}
+	return abs, nil
+}
+
+// Path is the config file in the brain directory dir, normally from Dir.
 func Path(dir string) string {
 	return filepath.Join(dir, DirName, FileName)
 }

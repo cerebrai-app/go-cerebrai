@@ -1,7 +1,8 @@
 // Package cli is the command line shared by brainctl and workctl. workctl is
-// an extension of brainctl: both use the same .brain/brainconfig.yaml, where
-// workctl's init adds its settings under extensions.app.cerebrai.workctl. Each program describes itself with
-// a Program, so this package keeps no list of extensions.
+// an extension of brainctl: both use the same .brain/config.yaml in the brain
+// directory ($BRAIN_DIR, or the current directory), where workctl's init adds
+// its settings under extensions.app.cerebrai.workctl. Each program describes
+// itself with a Program, so this package keeps no list of extensions.
 package cli
 
 import (
@@ -9,7 +10,6 @@ import (
 	"flag"
 	"fmt"
 	"io"
-	"os"
 	"path/filepath"
 
 	"github.com/cerebrai-app/go-cerebrai/brainconfig"
@@ -50,11 +50,12 @@ func Main(prog Program, args []string, stdout, stderr io.Writer) int {
 
 commands:
   version   print the %[1]s version
-  init      set up %[2]s in the current directory and download a
+  init      set up %[2]s in the brain directory and download a
             python-build-standalone distribution
 
+The brain directory is $%[3]s if set, otherwise the current directory.
 Run "%[1]s init -h" for the flags of init.
-`, name, filepath.Join(brainconfig.DirName, brainconfig.FileName))
+`, name, filepath.Join(brainconfig.DirName, brainconfig.FileName), brainconfig.EnvVar)
 	}
 	if len(args) == 0 {
 		usage()
@@ -114,7 +115,7 @@ that has the preferred build; a note is printed if a newer one exists only as an
 	}
 	// The config comes first: it is quick and needs no network, so a directory
 	// that cannot be written fails before the download.
-	dir, err := os.Getwd()
+	dir, err := brainconfig.Dir()
 	if err != nil {
 		_, _ = fmt.Fprintf(stderr, "error: %v\n", err)
 		return 1
@@ -134,10 +135,12 @@ that has the preferred build; a note is printed if a newer one exists only as an
 func initWrites(prog Program) string {
 	path := filepath.Join(brainconfig.DirName, brainconfig.FileName)
 	if prog.ExtensionID == "" {
-		return "Writes " + path + " in the current directory if it is missing"
+		return "Writes " + path + " in the brain directory ($" + brainconfig.EnvVar + ",\n" +
+			"or the current directory) if it is missing"
 	}
 	return "Adds settings for extension " + prog.ExtensionID + " to " + path + "\n" +
-		"in the current directory, which brainctl init must have created"
+		"in the brain directory ($" + brainconfig.EnvVar + ", or the current directory),\n" +
+		"which brainctl init must have created"
 }
 
 // initConfig makes sure the config file at path exists and, for an extension
