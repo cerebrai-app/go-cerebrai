@@ -44,11 +44,17 @@ func splitKeyPath(keyPath string) ([]string, error) {
 }
 
 // lookup follows keys from the mapping node m. It returns the node the last
-// key leads to, or nil if a key is missing. It is an error if a key before
-// the last leads to something other than a mapping.
+// key leads to, or nil if a key is missing or a key before the last has no
+// value. It is an error if a key before the last leads to something other
+// than a mapping or null.
 func lookup(m *yaml.Node, keys []string) (*yaml.Node, error) {
 	n := m
 	for i, key := range keys {
+		// A key with no value ("env:") is an empty mapping to set and unset,
+		// so the keys under it are not set, rather than an error.
+		if isNull(n) {
+			return nil, nil
+		}
 		if n.Kind != yaml.MappingNode {
 			return nil, fmt.Errorf("%s is not a mapping, so it has no %s", strings.Join(keys[:i], "/"), key)
 		}

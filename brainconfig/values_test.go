@@ -381,3 +381,20 @@ func TestTopLevelValues(t *testing.T) {
 }
 
 func ptr(s string) *string { return &s }
+
+// A key with no value ("env:") reads as an empty mapping, as set and unset
+// treat it: the keys under it are not set, which is not an error.
+func TestExtensionValueUnderNull(t *testing.T) {
+	cfg, err := Unmarshal([]byte(withSettings("    env:\n    other: ~\n")))
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, keyPath := range []string{"env/client_id", "env/a/b", "other/x"} {
+		if _, err := cfg.ExtensionValue(workctlID, 1, keyPath); !errors.Is(err, ErrNotSet) {
+			t.Errorf("%s: %v; want ErrNotSet", keyPath, err)
+		}
+	}
+	if got, err := cfg.ExtensionValue(workctlID, 1, "env"); err != nil || got != "" {
+		t.Errorf("env: %q, %v", got, err)
+	}
+}
