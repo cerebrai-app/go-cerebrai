@@ -92,6 +92,8 @@ type Config struct {
 	// package does not look inside them when it reads the file: an extension
 	// reads its own with DecodeExtension.
 	extensions map[string]yaml.Node
+	// root is the file's top-level mapping, for Value.
+	root *yaml.Node
 }
 
 // file is the YAML shape of Config.
@@ -536,9 +538,9 @@ func Load(path string) (Config, error) {
 // keys from a newer release, or the user's own, without breaking this one. What each extension holds
 // is not checked: see DecodeExtension and Config.Extension.
 func Unmarshal(data []byte) (Config, error) {
-	var f file
+	var doc yaml.Node
 	dec := yaml.NewDecoder(bytes.NewReader(data))
-	if err := dec.Decode(&f); err != nil {
+	if err := dec.Decode(&doc); err != nil {
 		if errors.Is(err, io.EOF) {
 			return Config{}, errors.New("config file is empty")
 		}
@@ -547,8 +549,13 @@ func Unmarshal(data []byte) (Config, error) {
 	if err := dec.Decode(new(yaml.Node)); !errors.Is(err, io.EOF) {
 		return Config{}, errors.New("invalid config file: it must hold a single YAML document")
 	}
+	var f file
+	if err := doc.Decode(&f); err != nil {
+		return Config{}, fmt.Errorf("invalid config file: %w", err)
+	}
 	if err := checkSchemaVersion("", f.SchemaVersion, SchemaVersion); err != nil {
 		return Config{}, err
 	}
-	return Config{SchemaVersion: f.SchemaVersion, extensions: f.Extensions}, nil
+	// The file decoded into a struct, so it is one document holding a mapping.
+	return Config{SchemaVersion: f.SchemaVersion, extensions: f.Extensions, root: doc.Content[0]}, nil
 }

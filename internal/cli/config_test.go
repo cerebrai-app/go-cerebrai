@@ -87,7 +87,7 @@ func TestConfigSetErrors(t *testing.T) {
 	}{
 		{"replacing a mapping", withEnv, "env", "x", "env holds a mapping"},
 		{"through a value", withEnv, "env/client_id/x", "y", "env/client_id is not a mapping"},
-		{"schema_version", withWorkctl, "schema_version", "2", "schema_version cannot be set"},
+		{"schema_version", withWorkctl, "schema_version", "2", "schema_version cannot be changed"},
 		{"bad bin", withWorkctl, "bin", "bin/workctl", "invalid bin"},
 		{"bad name", withWorkctl, "name", "", "invalid name: empty"},
 		{"bad key path", withWorkctl, "a//b", "x", "invalid key path"},
@@ -143,7 +143,7 @@ func TestConfigUsage(t *testing.T) {
 	writeBrainConfig(t, withWorkctl)
 	for _, args := range [][]string{
 		{"config"}, {"config", "bogus"}, {"config", "get"}, {"config", "get", "a", "b"},
-		{"config", "set", "a"}, {"config", "set", "a", "b", "c"},
+		{"config", "set", "a"}, {"config", "set", "a", "b", "c"}, {"config", "unset"}, {"config", "unset", "a", "b"},
 	} {
 		code, stdout, stderr := runWorkctl(args...)
 		if code != 2 || stdout != "" || !strings.Contains(stderr, "usage: workctl config get <key path>") {
@@ -157,7 +157,7 @@ func TestConfigUsage(t *testing.T) {
 			t.Errorf("%q: got %d, %q, %q", args, code, stdout, stderr)
 		}
 	}
-	if _, _, stderr := runWorkctl("help"); !strings.Contains(stderr, "config      get and set values in the settings for extension app.cerebrai.workctl") {
+	if _, _, stderr := runWorkctl("help"); !strings.Contains(stderr, "config      get, set and unset values in the settings for extension app.cerebrai.workctl") {
 		t.Errorf("workctl help does not mention config:\n%s", stderr)
 	}
 	if got := brainConfig(t); got != withWorkctl {
@@ -165,16 +165,54 @@ func TestConfigUsage(t *testing.T) {
 	}
 }
 
-// Only extensions have the command: brainctl's own keys are not settings.
-func TestBrainctlHasNoConfigCommand(t *testing.T) {
+// brainctl's config works on the file's top level, where the user's own keys
+// live, and leaves schema_version and the extensions' settings alone.
+func TestBrainctlConfig(t *testing.T) {
 	project(t)
-	writeBrainConfig(t, withWorkctl)
-	code, _, stderr := runBrainctl("config", "get", "x")
-	if code != 2 || !strings.Contains(stderr, `unknown command "config"`) {
-		t.Errorf("got %d, %q", code, stderr)
+	const before = "schema_version: 1 # format\nowner: me # mine\n" + "extensions:\n  app.cerebrai.workctl:\n    schema_version: 1\n    name: workctl\n    bin: workctl\n"
+	writeBrainConfig(t, before)
+	for _, step := range []struct {
+		args       []string
+		wantCode   int
+		wantStdout string
+		wantErr    string
+	}{
+		{[]string{"config", "get", "owner"}, 0, "me\n", ""},
+		{[]string{"config", "set", "owner", "you"}, 0, "", ""},
+		{[]string{"config", "get", "owner"}, 0, "you\n", ""},
+		{[]string{"config", "set", "sync/remote", "origin"}, 0, "", ""},
+		{[]string{"config", "get", "sync"}, 0, "remote: origin\n", ""},
+		{[]string{"config", "get", "schema_version"}, 0, "1\n", ""},
+		{[]string{"config", "get", "extensions/app.cerebrai.workctl/name"}, 0, "workctl\n", ""},
+		{[]string{"config", "get", "missing"}, 1, "", "missing in the config file: not set"},
+		{[]string{"config", "set", "schema_version", "2"}, 1, "", "schema_version cannot be changed: brainctl manages it"},
+		{[]string{"config", "unset", "schema_version"}, 1, "", "schema_version cannot be changed"},
+		{[]string{"config", "set", "extensions/app.cerebrai.workctl/name", "x"}, 1, "", "extensions cannot be changed here"},
+		{[]string{"config", "unset", "extensions"}, 1, "", "extensions cannot be changed here"},
+		{[]string{"config", "set", "owner/x", "y"}, 1, "", "config file: owner is not a mapping, so it has no x"},
+		{[]string{"config", "unset", "sync/remote"}, 0, "", ""},
+		{[]string{"config", "unset", "sync/remote"}, 0, "", ""}, // already gone: nothing to do
+		{[]string{"config", "unset", "owner"}, 0, "", ""},
+	} {
+		code, stdout, stderr := runBrainctl(step.args...)
+		if code != step.wantCode || stdout != step.wantStdout ||
+			(step.wantErr == "" && stderr != "") || !strings.Contains(stderr, step.wantErr) {
+			t.Errorf("%q: got %d, %q, %q; want %d, %q, an error containing %q",
+				step.args, code, stdout, stderr, step.wantCode, step.wantStdout, step.wantErr)
+		}
 	}
-	if _, _, stderr := runBrainctl("help"); strings.Contains(stderr, "\n  config ") {
-		t.Errorf("brainctl help mentions config:\n%s", stderr)
+	const want = "schema_version: 1 # format\n" +
+		"extensions:\n  app.cerebrai.workctl:\n    schema_version: 1\n    name: workctl\n    bin: workctl\n" +
+		"sync: {}\n"
+	if got := brainConfig(t); got != want {
+		t.Errorf("config = %q, want %q", got, want)
+	}
+	if _, _, stderr := runBrainctl("help"); !strings.Contains(stderr, "config      get, set and unset values in the brain config") {
+		t.Errorf("brainctl help does not mention config:\n%s", stderr)
+	}
+	if _, _, stderr := runBrainctl("config", "-h"); !strings.Contains(stderr, "in the top level of the brain config") ||
+		!strings.Contains(stderr, "cannot change schema_version or extensions") {
+		t.Errorf("brainctl config -h:\n%s", stderr)
 	}
 }
 
@@ -202,5 +240,69 @@ func TestConfigGetWriteError(t *testing.T) {
 	var errOut strings.Builder
 	if code := Main(workctl, []string{"config", "get", "name"}, failingWriter{}, &errOut); code != 1 || !strings.HasPrefix(errOut.String(), "error: ") {
 		t.Errorf("got %d, %q", code, errOut.String())
+	}
+}
+
+func TestConfigUnset(t *testing.T) {
+	project(t)
+	writeBrainConfig(t, withWorkctl+"    env:\n      client_id: abc # mine\n      debug: \"true\"\n    port: \"80\"\n")
+	for _, step := range []struct {
+		args     []string
+		wantCode int
+		wantErr  string
+	}{
+		{[]string{"config", "unset", "env/client_id"}, 0, ""},
+		{[]string{"config", "unset", "env/client_id"}, 0, ""}, // already gone
+		{[]string{"config", "unset", "nothing/here"}, 0, ""},
+		{[]string{"config", "unset", "port"}, 0, ""},
+		{[]string{"config", "unset", "schema_version"}, 1, "schema_version cannot be changed: the extension manages it"},
+		{[]string{"config", "unset", "env/debug/x"}, 1, "env/debug is not a mapping"},
+		{[]string{"config", "unset", "a//b"}, 1, "invalid key path"},
+	} {
+		code, stdout, stderr := runWorkctl(step.args...)
+		if code != step.wantCode || stdout != "" || (step.wantErr == "" && stderr != "") || !strings.Contains(stderr, step.wantErr) {
+			t.Errorf("%q: got %d, %q, %q; want %d, an error containing %q", step.args, code, stdout, stderr, step.wantCode, step.wantErr)
+		}
+	}
+	if got, want := brainConfig(t), withWorkctl+"    env:\n      debug: \"true\"\n"; got != want {
+		t.Errorf("config = %q, want %q", got, want)
+	}
+	if code, _, stderr := runWorkctl("config", "get", "env/client_id"); code != 1 || !strings.Contains(stderr, "not set") {
+		t.Errorf("get after unset: got %d, %q", code, stderr)
+	}
+	// The whole mapping goes too.
+	if code, _, stderr := runWorkctl("config", "unset", "env"); code != 0 {
+		t.Fatalf("unset env: got %d, %q", code, stderr)
+	}
+	if got := brainConfig(t); got != withWorkctl {
+		t.Errorf("config = %q, want %q", got, withWorkctl)
+	}
+}
+
+func TestConfigUnsetErrors(t *testing.T) {
+	for _, tt := range []struct {
+		name, content, wantErr string // content "" means no config file
+	}{
+		{"no settings", brainOnly, "no settings for extension app.cerebrai.workctl: run workctl init first"},
+		{"no config", "", "run brainctl init first"},
+		{"newer settings", "schema_version: 1\nextensions:\n  app.cerebrai.workctl: {schema_version: 2, x: y}\n", "upgrade"},
+	} {
+		t.Run(tt.name, func(t *testing.T) {
+			project(t)
+			if tt.content != "" {
+				writeBrainConfig(t, tt.content)
+			}
+			code, _, stderr := runWorkctl("config", "unset", "x")
+			if code != 1 || !strings.Contains(stderr, tt.wantErr) {
+				t.Errorf("got %d, %q; want an error containing %q", code, stderr, tt.wantErr)
+			}
+			want := tt.content
+			if want == "" {
+				want = "<missing>"
+			}
+			if got := brainConfig(t); got != want {
+				t.Errorf("config changed to %q", got)
+			}
+		})
 	}
 }

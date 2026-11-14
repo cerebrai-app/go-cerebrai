@@ -167,7 +167,7 @@ func TestSetExtensionValueRefuses(t *testing.T) {
 		{"replacing a list", withSettings(body), "env/list", "x", "env/list holds a list"},
 		{"through a value", withSettings(body), "env/client_id/x", "y", "env/client_id is not a mapping, so it has no x"},
 		{"through a list", withSettings(body), "env/list/x", "y", "env/list is not a mapping"},
-		{"schema_version", withSettings(""), "schema_version", "2", "schema_version cannot be set"},
+		{"schema_version", withSettings(""), "schema_version", "2", "schema_version cannot be changed"},
 		{"bad name", withSettings(""), "name", " x", "invalid name"},
 		{"bad bin", withSettings(""), "bin", "bin/x", "invalid bin"},
 		{"bad key path", withSettings(""), "a//b", "x", "invalid key path"},
@@ -222,3 +222,162 @@ func TestSetExtensionValueRefusesAlias(t *testing.T) {
 		t.Errorf("file changed to %q", got)
 	}
 }
+
+func TestUnsetExtensionValue(t *testing.T) {
+	for _, tt := range []struct{ name, before, keyPath, after string }{
+		{"a value", "    port: \"80\"\n    env:\n      a: b\n", "port",
+			"    env:\n      a: b\n"},
+		{"a nested value, keeping its mapping", "    env:\n      client_id: abc # mine\n      a: b\n", "env/client_id",
+			"    env:\n      a: b\n"},
+		{"the last value in a mapping, keeping it empty", "    env:\n      client_id: abc\n", "env/client_id",
+			"    env: {}\n"},
+		{"a whole mapping", "    env:\n      client_id: abc\n      nested: {x: 1}\n    port: \"80\"\n", "env",
+			"    port: \"80\"\n"},
+		{"a list", "    list: [a, b]\n", "list", ""},
+		{"a null value", "    env:\n", "env", ""},
+		{"from a flow mapping", "    env: {a: 1, b: 2}\n", "env/a", "    env: {b: 2}\n"},
+		{"name", "    name: workctl\n", "name", ""},
+		{"bin", "    bin: workctl\n", "bin", ""},
+	} {
+		t.Run(tt.name, func(t *testing.T) {
+			path := writeConfig(t, withSettings(tt.before))
+			if changed, err := UnsetExtensionValue(path, workctlID, 1, tt.keyPath); err != nil || !changed {
+				t.Fatalf("UnsetExtensionValue: %v, %v", changed, err)
+			}
+			if got, want := readFile(t, path), withSettings(tt.after); got != want {
+				t.Errorf("file = %q, want %q", got, want)
+			}
+			cfg, err := Load(path)
+			if err != nil {
+				t.Fatal(err)
+			}
+			if _, err := cfg.ExtensionValue(workctlID, 1, tt.keyPath); !errors.Is(err, ErrNotSet) {
+				t.Errorf("after unset: %v", err)
+			}
+			// Again: not there, nothing to do.
+			if changed, err := UnsetExtensionValue(path, workctlID, 1, tt.keyPath); err != nil || changed {
+				t.Errorf("again: %v, %v", changed, err)
+			}
+			if got, want := readFile(t, path), withSettings(tt.after); got != want {
+				t.Errorf("file changed to %q", got)
+			}
+		})
+	}
+}
+
+// Unsetting what is not there is not an error and writes nothing, whether the
+// key or the mappings on the way to it are missing.
+func TestUnsetExtensionValueNotThere(t *testing.T) {
+	content := withSettings("    env:\n      a: b\n    empty:\n")
+	for _, keyPath := range []string{"missing", "env/missing", "missing/x/y", "empty/x"} {
+		path := writeConfig(t, content)
+		if changed, err := UnsetExtensionValue(path, workctlID, 1, keyPath); err != nil || changed {
+			t.Errorf("%s: %v, %v", keyPath, changed, err)
+		}
+		if got := readFile(t, path); got != content {
+			t.Errorf("%s: file changed to %q", keyPath, got)
+		}
+	}
+}
+
+func TestUnsetExtensionValueRefuses(t *testing.T) {
+	body := "    env:\n      client_id: abc\n      list: [a]\n"
+	for _, tt := range []struct{ name, content, keyPath, wantErr string }{
+		{"through a value", withSettings(body), "env/client_id/x", "env/client_id is not a mapping, so it has no x"},
+		{"through a list", withSettings(body), "env/list/0", "env/list is not a mapping"},
+		{"schema_version", withSettings(""), "schema_version", "schema_version cannot be changed"},
+		{"bad key path", withSettings(""), "env/", "invalid key path"},
+		{"no settings", brainOnly, "x", "no settings for extension app.cerebrai.workctl"},
+		{"newer settings", "schema_version: 1\nextensions:\n  app.cerebrai.workctl: {schema_version: 2, x: y}\n", "x", "upgrade"},
+		{"bad file", "schema_version: 2\n", "x", "upgrade"},
+	} {
+		t.Run(tt.name, func(t *testing.T) {
+			path := writeConfig(t, tt.content)
+			changed, err := UnsetExtensionValue(path, workctlID, 1, tt.keyPath)
+			if err == nil || changed || !strings.Contains(err.Error(), tt.wantErr) {
+				t.Errorf("UnsetExtensionValue: %v, %v; want an error containing %q", changed, err, tt.wantErr)
+			}
+			if got := readFile(t, path); got != tt.content {
+				t.Errorf("file changed to %q", got)
+			}
+		})
+	}
+	if _, err := UnsetExtensionValue(Path(t.TempDir()), workctlID, 1, "x"); !errors.Is(err, ErrNoConfig) {
+		t.Errorf("missing file: %v", err)
+	}
+}
+
+// The top level: the user's own keys can be read, set and unset; schema_version
+// and extensions can be read but not changed.
+func TestTopLevelValues(t *testing.T) {
+	const content = "schema_version: 1 # format\nowner: me # mine\nextensions:\n  app.cerebrai.workctl: {schema_version: 1, name: workctl}\n"
+	path := writeConfig(t, content)
+	cfg, err := Load(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	for keyPath, want := range map[string]string{
+		"owner":                                "me",
+		"schema_version":                       "1",
+		"extensions/app.cerebrai.workctl/name": "workctl",
+		"extensions":                           "app.cerebrai.workctl:\n  schema_version: 1\n  name: workctl\n",
+	} {
+		if got, err := cfg.Value(keyPath); err != nil || got != want {
+			t.Errorf("Value(%s) = %q, %v; want %q", keyPath, got, err, want)
+		}
+	}
+	if _, err := cfg.Value("missing"); !errors.Is(err, ErrNotSet) || !strings.Contains(err.Error(), "missing in the config file: not set") {
+		t.Errorf("Value(missing): %v", err)
+	}
+	if _, err := cfg.Value("owner/x"); err == nil || !strings.Contains(err.Error(), "config file: owner is not a mapping") {
+		t.Errorf("Value(owner/x): %v", err)
+	}
+
+	for _, tt := range []struct {
+		keyPath string
+		value   *string
+		wantErr string
+	}{
+		{"schema_version", ptr("2"), "schema_version cannot be changed: brainctl manages it"},
+		{"schema_version", nil, "schema_version cannot be changed"},
+		{"extensions", ptr("x"), "extensions cannot be changed here"},
+		{"extensions/app.cerebrai.workctl/name", ptr("x"), "extensions cannot be changed here"},
+		{"extensions/app.cerebrai.workctl", nil, "extensions cannot be changed here"},
+		{"owner/x", ptr("y"), "config file: owner is not a mapping"},
+	} {
+		var changed bool
+		if tt.value != nil {
+			changed, err = SetValue(path, tt.keyPath, *tt.value)
+		} else {
+			changed, err = UnsetValue(path, tt.keyPath)
+		}
+		if err == nil || changed || !strings.Contains(err.Error(), tt.wantErr) {
+			t.Errorf("%s: %v, %v; want an error containing %q", tt.keyPath, changed, err, tt.wantErr)
+		}
+	}
+	if got := readFile(t, path); got != content {
+		t.Fatalf("file changed to %q", got)
+	}
+
+	if changed, err := SetValue(path, "owner", "you"); err != nil || !changed {
+		t.Errorf("SetValue(owner): %v, %v", changed, err)
+	}
+	if changed, err := SetValue(path, "sync/remote", "origin"); err != nil || !changed {
+		t.Errorf("SetValue(sync/remote): %v, %v", changed, err)
+	}
+	if changed, err := UnsetValue(path, "sync/remote"); err != nil || !changed {
+		t.Errorf("UnsetValue(sync/remote): %v, %v", changed, err)
+	}
+	if changed, err := UnsetValue(path, "nothing"); err != nil || changed {
+		t.Errorf("UnsetValue(nothing): %v, %v", changed, err)
+	}
+	const want = "schema_version: 1 # format\nowner: you # mine\nextensions:\n  app.cerebrai.workctl: {schema_version: 1, name: workctl}\nsync: {}\n"
+	if got := readFile(t, path); got != want {
+		t.Errorf("file = %q, want %q", got, want)
+	}
+	if _, err := SetValue(Path(t.TempDir()), "owner", "me"); !errors.Is(err, ErrNoConfig) {
+		t.Errorf("SetValue on a missing file: %v", err)
+	}
+}
+
+func ptr(s string) *string { return &s }
