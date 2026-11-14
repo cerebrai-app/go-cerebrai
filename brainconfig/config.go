@@ -194,12 +194,11 @@ func Init(path string) (created bool, err error) {
 	if err != nil {
 		return false, err
 	}
-	if _, err := f.Write(data); err != nil {
-		_ = f.Close()
-		_ = os.Remove(path)
-		return false, fmt.Errorf("writing %s: %w", path, err)
+	_, err = f.Write(data)
+	if closeErr := f.Close(); err == nil {
+		err = closeErr
 	}
-	if err := f.Close(); err != nil {
+	if err != nil {
 		_ = os.Remove(path)
 		return false, fmt.Errorf("writing %s: %w", path, err)
 	}
@@ -259,13 +258,14 @@ func AddExtension(path, id string, schemaVersion int) (added bool, err error) {
 	var buf bytes.Buffer
 	enc := yaml.NewEncoder(&buf)
 	enc.SetIndent(2)
-	if err := enc.Encode(&doc); err != nil {
-		return false, err
+	err = enc.Encode(&doc)
+	if closeErr := enc.Close(); err == nil {
+		err = closeErr
 	}
-	if err := enc.Close(); err != nil {
-		return false, err
+	if err == nil {
+		err = writeFile(path, buf.Bytes())
 	}
-	if err := writeFile(path, buf.Bytes()); err != nil {
+	if err != nil {
 		return false, fmt.Errorf("writing %s: %w", path, err)
 	}
 	return true, nil
