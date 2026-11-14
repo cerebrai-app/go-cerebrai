@@ -19,8 +19,8 @@ const extensionsUsage = `usage: %[1]s extensions <command>
 
 commands:
   l, ls, list   list the extensions with settings in %[2]s, each with
-                its bin and where that is found: on PATH for a bare name,
-                or at its absolute path
+                its name, its bin, and where that is found: on PATH for a
+                bare name, or at its absolute path
 
 The brain home is $%[3]s if set, otherwise the current directory.
 `
@@ -57,8 +57,8 @@ func runExtensions(name string, args []string, stdout, stderr io.Writer) int {
 }
 
 // listExtensions writes a table of the extensions in the brain config to
-// stdout: each one's ID, its bin, and where that is found, or why not. An
-// extension whose bin is missing, bad or not installed is reported in its
+// stdout: each one's ID, name, bin, and where the bin is found, or why not.
+// An extension whose bin is missing, bad or not installed is reported in its
 // row, not as an error: the list is the same file on every machine, not every
 // machine has every extension, and one broken extension must not hide the
 // others.
@@ -78,19 +78,27 @@ func listExtensions(stdout, stderr io.Writer) error {
 		return nil
 	}
 	w := tabwriter.NewWriter(stdout, 0, 0, 2, ' ', 0)
-	_, _ = fmt.Fprintln(w, "EXTENSION\tBIN\tPATH")
+	_, _ = fmt.Fprintln(w, "EXTENSION\tNAME\tBIN\tPATH")
 	for _, id := range ids {
-		bin, err := cfg.ExtensionBin(id)
+		ext, _, err := cfg.Extension(id)
 		switch {
 		case err != nil:
-			_, _ = fmt.Fprintf(w, "%s\t-\t%v\n", id, err)
-		case bin == "":
-			_, _ = fmt.Fprintf(w, "%s\t-\tno bin set\n", id)
+			_, _ = fmt.Fprintf(w, "%s\t-\t-\t%v\n", id, err)
+		case ext.Bin == "":
+			_, _ = fmt.Fprintf(w, "%s\t%s\t-\tno bin set\n", id, orDash(ext.Name))
 		default:
-			_, _ = fmt.Fprintf(w, "%s\t%s\t%s\n", id, bin, where(bin))
+			_, _ = fmt.Fprintf(w, "%s\t%s\t%s\t%s\n", id, orDash(ext.Name), ext.Bin, where(ext.Bin))
 		}
 	}
 	return w.Flush()
+}
+
+// orDash is s, or "-" if s is empty, for a table cell.
+func orDash(s string) string {
+	if s == "" {
+		return "-"
+	}
+	return s
 }
 
 // where says where an extension's bin is found: the executable's

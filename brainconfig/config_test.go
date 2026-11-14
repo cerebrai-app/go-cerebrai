@@ -73,7 +73,7 @@ func TestAddExtension(t *testing.T) {
 		{"flow extensions", "schema_version: 1\nextensions: {}\n", "schema_version: 1\nextensions:\n  app.cerebrai.workctl:\n    schema_version: 1\n"},
 	} {
 		path := writeConfig(t, tt.in)
-		if added, err := AddExtension(path, "app.cerebrai.workctl", 1); err != nil || !added {
+		if added, err := addSettings(path, "app.cerebrai.workctl", 1); err != nil || !added {
 			t.Errorf("%s: AddExtension: %v, %v", tt.name, added, err)
 			continue
 		}
@@ -90,7 +90,7 @@ func TestAddExtension(t *testing.T) {
 func TestAddExtensionKeepsExisting(t *testing.T) {
 	const content = "schema_version: 1\nextensions:\n    app.cerebrai.workctl:\n        schema_version: 1 # mine\n"
 	path := writeConfig(t, content)
-	if added, err := AddExtension(path, "app.cerebrai.workctl", 1); err != nil || added {
+	if added, err := addSettings(path, "app.cerebrai.workctl", 1); err != nil || added {
 		t.Fatalf("AddExtension: %v, %v", added, err)
 	}
 	if got := readFile(t, path); got != content {
@@ -99,16 +99,16 @@ func TestAddExtensionKeepsExisting(t *testing.T) {
 }
 
 func TestAddExtensionRejectsBadFile(t *testing.T) {
-	const content = "schema_version: 1\nbogus: 1\n"
+	const content = "schema_version: two\n"
 	path := writeConfig(t, content)
-	if _, err := AddExtension(path, "app.cerebrai.workctl", 1); err == nil {
+	if _, err := addSettings(path, "app.cerebrai.workctl", 1); err == nil {
 		t.Error("AddExtension accepted an invalid file")
 	}
 	if got := readFile(t, path); got != content {
 		t.Errorf("file changed to %q", got)
 	}
 	missing := Path(t.TempDir())
-	if _, err := AddExtension(missing, "app.cerebrai.workctl", 1); !errors.Is(err, ErrNoConfig) {
+	if _, err := addSettings(missing, "app.cerebrai.workctl", 1); !errors.Is(err, ErrNoConfig) {
 		t.Errorf("AddExtension on a missing file: %v", err)
 	}
 	if _, err := os.Stat(filepath.Dir(missing)); err == nil {
@@ -124,7 +124,7 @@ func TestAddExtensionKeepsPermissions(t *testing.T) {
 	if err := os.Chmod(path, 0o600); err != nil {
 		t.Fatal(err)
 	}
-	if _, err := AddExtension(path, "app.cerebrai.workctl", 1); err != nil {
+	if _, err := addSettings(path, "app.cerebrai.workctl", 1); err != nil {
 		t.Fatal(err)
 	}
 	info, err := os.Stat(path)
@@ -157,16 +157,15 @@ func TestUnmarshal(t *testing.T) {
 		}
 	}
 	for in, wantErr := range map[string]string{
-		"":                                 "empty",
-		"# only a comment\n":               "empty",
-		"other: 1\n":                       "invalid config file",
-		"schema_version: 1\nextra: true\n": "invalid config file",
-		"schema_version: one\n":            "invalid config file",
-		"schema_version: 0\n":              "no schema_version",
-		"schema_version: -1\n":             "invalid schema_version",
-		"schema_version: 2\n":              "reads only up to 1",
-		"[1, 2]\n":                         "invalid config file",
-		"schema_version: 1\n---\nx: 1\n":   "single YAML document",
+		"":                               "empty",
+		"# only a comment\n":             "empty",
+		"other: 1\n":                     "no schema_version",
+		"schema_version: one\n":          "invalid config file",
+		"schema_version: 0\n":            "no schema_version",
+		"schema_version: -1\n":           "invalid schema_version",
+		"schema_version: 2\n":            "reads only up to 1",
+		"[1, 2]\n":                       "invalid config file",
+		"schema_version: 1\n---\nx: 1\n": "single YAML document",
 		"schema_version: 1\nextensions: [workctl]\n": "invalid config file",
 	} {
 		if _, err := Unmarshal([]byte(in)); err == nil || !strings.Contains(err.Error(), wantErr) {
@@ -249,11 +248,18 @@ func TestCheckID(t *testing.T) {
 func TestAddExtensionKeepsOtherExtensions(t *testing.T) {
 	// Another extension's settings, however odd, are kept as they are.
 	path := writeConfig(t, "schema_version: 1\nextensions:\n  other: [not, a, mapping]\n")
-	if added, err := AddExtension(path, "com.example.tool", 4); err != nil || !added {
+	if added, err := addSettings(path, "com.example.tool", 4); err != nil || !added {
 		t.Fatalf("AddExtension: %v, %v", added, err)
 	}
 	const want = "schema_version: 1\nextensions:\n  other: [not, a, mapping]\n  com.example.tool:\n    schema_version: 4\n"
 	if got := readFile(t, path); got != want {
 		t.Errorf("file = %q, want %q", got, want)
 	}
+}
+
+// addSettings is AddExtension with only a schema version, reporting whether
+// it added the settings: how most tests here use it.
+func addSettings(path, id string, schemaVersion int) (bool, error) {
+	added, err := AddExtension(path, id, ExtensionBase{SchemaVersion: schemaVersion})
+	return slices.Contains(added, "schema_version"), err
 }

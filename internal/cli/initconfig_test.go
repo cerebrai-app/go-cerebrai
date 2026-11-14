@@ -21,7 +21,7 @@ var configPath = filepath.Join(".brain", "config.yaml")
 
 const (
 	brainOnly   = "schema_version: 1\n"
-	withWorkctl = "schema_version: 1\nextensions:\n  app.cerebrai.workctl:\n    schema_version: 1\n    bin: workctl\n"
+	withWorkctl = "schema_version: 1\nextensions:\n  app.cerebrai.workctl:\n    schema_version: 1\n    name: workctl\n    bin: workctl\n"
 )
 
 // project runs the test in an empty current directory with install stubbed
@@ -124,9 +124,8 @@ func TestBrainctlInitStopsOnBadConfig(t *testing.T) {
 		{"no schema version", "extensions: {}\n", "no schema_version"},
 		{"negative schema version", "schema_version: -1\n", "invalid schema_version -1"},
 		{"newer schema version", "schema_version: 2\n", "upgrade to a newer release"},
-		{"unknown top-level key", "schema_version: 1\ncolor: blue\n", "invalid config file"},
+		{"known key of the wrong type", "schema_version: 1\nextensions: yes\n", "invalid config file"},
 		{"extensions not a mapping", "schema_version: 1\nextensions: [a]\n", "invalid config file"},
-		{"no top-level extension_bins", "schema_version: 1\nextension_bins: [workctl]\n", "invalid config file"},
 	} {
 		t.Run(tt.name, func(t *testing.T) {
 			installs := project(t)
@@ -271,7 +270,7 @@ func TestWorkctlInitKeepsCommentsAndOtherContent(t *testing.T) {
 	}
 	const want = "# my brain\nschema_version: 1 # format\nextensions:\n" +
 		"  com.example.tool:\n    schema_version: 3 # theirs\n    color: blue\n" +
-		"  app.cerebrai.workctl:\n    schema_version: 1\n    bin: workctl\n"
+		"  app.cerebrai.workctl:\n    schema_version: 1\n    name: workctl\n    bin: workctl\n"
 	if got := brainConfig(t); got != want {
 		t.Errorf("config = %q, want %q", got, want)
 	}
@@ -302,7 +301,7 @@ func TestWorkctlInitStopsOnBadConfig(t *testing.T) {
 		{"empty", "", "empty"},
 		{"not YAML", "schema_version: [\n", "invalid config file"},
 		{"newer file schema version", "schema_version: 2\n", "upgrade to a newer release"},
-		{"unknown top-level key", "schema_version: 1\ncolor: blue\n", "invalid config file"},
+		{"known key of the wrong type", "schema_version: 1\nextensions: yes\n", "invalid config file"},
 		{"settings with bad bin", "schema_version: 1\nextensions:\n  app.cerebrai.workctl: {schema_version: 1, bin: a/b}\n",
 			`invalid bin "a/b"`},
 		{"settings with empty bin", "schema_version: 1\nextensions:\n  app.cerebrai.workctl: {schema_version: 1, bin: ''}\n",
@@ -369,7 +368,7 @@ func TestThirdPartyExtensionAlongsideWorkctl(t *testing.T) {
 				}
 				want += "  " + prog.ExtensionID + ":\n    schema_version: " +
 					map[string]string{"app.cerebrai.workctl": "1", "com.example.tool": "3"}[prog.ExtensionID] + "\n" +
-					"    bin: " + prog.Name + "\n"
+					"    name: " + prog.Name + "\n    bin: " + prog.Name + "\n"
 			}
 			if got := brainConfig(t); got != want {
 				t.Errorf("config = %q, want %q", got, want)
@@ -397,7 +396,7 @@ func TestWorkctlInitIgnoresOtherExtensions(t *testing.T) {
 		t.Fatalf("got %d, %q", code, stderr)
 	}
 	const want = "schema_version: 1\nextensions:\n  com.example.tool: {schema_version: 99, x: [1]}\n  junk: 1\n" +
-		"  app.cerebrai.workctl:\n    schema_version: 1\n    bin: workctl\n"
+		"  app.cerebrai.workctl:\n    schema_version: 1\n    name: workctl\n    bin: workctl\n"
 	if got := brainConfig(t); got != want {
 		t.Errorf("config = %q, want %q", got, want)
 	}
@@ -605,52 +604,90 @@ func TestUsageMentionsBrainDir(t *testing.T) {
 	}
 }
 
-func TestWorkctlInitSetsItsBin(t *testing.T) {
+func TestWorkctlInitSetsItsNameAndBin(t *testing.T) {
 	project(t)
 	writeBrainConfig(t, brainOnly)
 	code, stderr := runProgram(workctl, "init")
-	if code != 0 || !strings.Contains(stderr, "Set bin: workctl for extension app.cerebrai.workctl in ") {
+	if code != 0 || !strings.Contains(stderr, "Added settings for extension app.cerebrai.workctl to ") {
 		t.Fatalf("got %d, %q", code, stderr)
 	}
 	if got := brainConfig(t); got != withWorkctl {
 		t.Errorf("config = %q, want %q", got, withWorkctl)
 	}
-	if code, stderr := runProgram(workctl, "init"); code != 0 || strings.Contains(stderr, "Set bin") {
+	if code, stderr := runProgram(workctl, "init"); code != 0 || !strings.Contains(stderr, "Using existing settings") {
 		t.Errorf("second run: got %d, %q", code, stderr)
 	}
 }
 
-// Settings without a bin, as a user may write them: init adds the bin
-// without touching the rest.
-func TestWorkctlInitSetsBinInExistingSettings(t *testing.T) {
-	project(t)
-	const settingsOnly = "schema_version: 1\nextensions:\n  app.cerebrai.workctl:\n    schema_version: 1 # mine\n"
-	writeBrainConfig(t, settingsOnly)
-	code, stderr := runProgram(workctl, "init")
-	if code != 0 || !strings.Contains(stderr, "Using existing settings") || !strings.Contains(stderr, "Set bin: workctl") {
-		t.Fatalf("got %d, %q", code, stderr)
-	}
-	if got, want := brainConfig(t), settingsOnly+"    bin: workctl\n"; got != want {
-		t.Errorf("config = %q, want %q", got, want)
+// Settings missing name or bin, as a user may write them: init fills in what
+// is missing without touching the rest, and says what it added.
+func TestWorkctlInitFillsInStandardKeys(t *testing.T) {
+	const head = "schema_version: 1\nextensions:\n  app.cerebrai.workctl:\n    schema_version: 1 # mine\n"
+	for _, tt := range []struct{ name, extra, wantAdded, wantExtra string }{
+		{"both missing", "", "Added name and bin to", "    name: workctl\n    bin: workctl\n"},
+		{"name missing", "    bin: /opt/x/workctl\n", "Added name to", "    bin: /opt/x/workctl\n    name: workctl\n"},
+		{"bin missing", "    name: My Work\n", "Added bin to", "    name: My Work\n    bin: workctl\n"},
+	} {
+		t.Run(tt.name, func(t *testing.T) {
+			project(t)
+			writeBrainConfig(t, head+tt.extra)
+			code, stderr := runProgram(workctl, "init")
+			if code != 0 || !strings.Contains(stderr, tt.wantAdded+" the existing settings for extension app.cerebrai.workctl in ") {
+				t.Fatalf("got %d, %q", code, stderr)
+			}
+			if got, want := brainConfig(t), head+tt.wantExtra; got != want {
+				t.Errorf("config = %q, want %q", got, want)
+			}
+		})
 	}
 }
 
-// A bin the user set is kept, whatever it is: an absolute path for a program
-// not on PATH, or another name it is installed under.
-func TestWorkctlInitKeepsUsersBin(t *testing.T) {
-	for _, bin := range []string{"workctl", "/opt/tools/bin/workctl", "workctl-dev"} {
-		t.Run(bin, func(t *testing.T) {
+// A name and bin the user set are kept, whatever they are: say an absolute
+// path for a program not on PATH, or another name it is installed under.
+func TestWorkctlInitKeepsUsersNameAndBin(t *testing.T) {
+	for _, tt := range []struct{ name, bin string }{
+		{"workctl", "workctl"}, {"My Work", "/opt/tools/bin/workctl"}, {"Dev", "workctl-dev"},
+	} {
+		t.Run(tt.bin, func(t *testing.T) {
 			project(t)
-			content := "schema_version: 1\nextensions:\n  app.cerebrai.workctl:\n    schema_version: 1\n    bin: " + bin + " # mine\n"
+			content := "schema_version: 1\nextensions:\n  app.cerebrai.workctl:\n    schema_version: 1\n" +
+				"    name: " + tt.name + " # mine\n    bin: " + tt.bin + " # mine\n"
 			writeBrainConfig(t, content)
 			code, stderr := runProgram(workctl, "init")
-			if code != 0 || strings.Contains(stderr, "Set bin") {
+			if code != 0 || !strings.Contains(stderr, "Using existing settings") {
 				t.Fatalf("got %d, %q", code, stderr)
 			}
 			if got := brainConfig(t); got != content {
 				t.Errorf("config changed to %q", got)
 			}
 		})
+	}
+}
+
+// brainctl ignores top-level keys it does not know, from a newer release or
+// the user, and workctl keeps them when it adds its settings.
+func TestUnknownTopLevelKeysIgnored(t *testing.T) {
+	installs := project(t)
+	const content = "schema_version: 1\nowner: me # mine\nfuture_feature: {enabled: true}\n"
+	writeBrainConfig(t, content)
+	if code, stderr := runProgram(brainctl, "init"); code != 0 || !strings.Contains(stderr, "Using existing ") {
+		t.Fatalf("brainctl init: got %d, %q", code, stderr)
+	}
+	if got := brainConfig(t); got != content {
+		t.Errorf("brainctl init changed the config to %q", got)
+	}
+	if code, stderr := runProgram(workctl, "init"); code != 0 {
+		t.Fatalf("workctl init: got %d, %q", code, stderr)
+	}
+	want := content + withWorkctl[len(brainOnly):]
+	if got := brainConfig(t); got != want {
+		t.Errorf("config = %q, want %q", got, want)
+	}
+	if code, stdout, stderr := runBrainctl("extensions", "ls"); code != 0 || !strings.Contains(stdout, "app.cerebrai.workctl") {
+		t.Errorf("extensions ls: got %d, %q, %q", code, stdout, stderr)
+	}
+	if *installs != 2 {
+		t.Errorf("install ran %d times, want 2", *installs)
 	}
 }
 

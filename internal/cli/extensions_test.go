@@ -65,25 +65,27 @@ func TestExtensionsList(t *testing.T) {
 	toolPath := fakeBin(t, t.TempDir(), "tool")
 	missingAbs := filepath.Join(t.TempDir(), "gone")
 	writeBrainConfig(t, fmt.Sprintf("schema_version: 1\nextensions:\n"+
-		"  app.cerebrai.workctl: {schema_version: 1, bin: workctl}\n"+
-		"  com.example.tool: {schema_version: 3, bin: %q, color: blue}\n"+
+		"  app.cerebrai.workctl: {schema_version: 1, name: workctl, bin: workctl}\n"+
+		"  com.example.tool: {schema_version: 3, name: Example Tool, bin: %q, color: blue}\n"+
 		"  com.example.absent: {schema_version: 1, bin: not-installed}\n"+
 		"  com.example.gone: {schema_version: 1, bin: %q}\n"+
-		"  com.example.nobin: {schema_version: 1}\n"+
+		"  com.example.nobin: {schema_version: 1, name: No Bin}\n"+
+		"  com.example.badname: {schema_version: 1, name: '', bin: workctl}\n"+
 		"  com.example.badbin: {schema_version: 1, bin: a/b}\n"+
 		"  com.example.broken: not a mapping\n"+
 		"  com.example.newer: {schema_version: 99, bin: workctl}\n",
 		toolPath, missingAbs))
 	want := [][]string{
-		{"EXTENSION", "BIN", "PATH"},
-		{"app.cerebrai.workctl", "workctl", workctlPath},
-		{"com.example.absent", "not-installed", "not found"},
-		{"com.example.badbin", "-", `invalid settings for extension com.example.badbin: invalid bin "a/b": use a bare executable name or an absolute path`},
-		{"com.example.broken", "-", "invalid config file: the settings for extension com.example.broken must be a mapping"},
-		{"com.example.gone", missingAbs, "not found"},
-		{"com.example.newer", "workctl", workctlPath},
-		{"com.example.nobin", "-", "no bin set"},
-		{"com.example.tool", toolPath, toolPath},
+		{"EXTENSION", "NAME", "BIN", "PATH"},
+		{"app.cerebrai.workctl", "workctl", "workctl", workctlPath},
+		{"com.example.absent", "-", "not-installed", "not found"},
+		{"com.example.badbin", "-", "-", `invalid settings for extension com.example.badbin: invalid bin "a/b": use a bare executable name or an absolute path`},
+		{"com.example.badname", "-", "-", "invalid settings for extension com.example.badname: invalid name: empty"},
+		{"com.example.broken", "-", "-", "invalid config file: the settings for extension com.example.broken must be a mapping"},
+		{"com.example.gone", "-", missingAbs, "not found"},
+		{"com.example.newer", "-", "workctl", workctlPath},
+		{"com.example.nobin", "No Bin", "-", "no bin set"},
+		{"com.example.tool", "Example Tool", toolPath, toolPath},
 	}
 	for _, alias := range []string{"l", "ls", "list"} {
 		code, stdout, stderr := runBrainctl("extensions", alias)
@@ -105,7 +107,7 @@ func TestExtensionsListAfterInit(t *testing.T) {
 		}
 	}
 	code, stdout, stderr := runBrainctl("extensions", "ls")
-	if want := "EXTENSION             BIN      PATH\napp.cerebrai.workctl  workctl  " + workctlPath + "\n"; code != 0 || stdout != want || stderr != "" {
+	if want := "EXTENSION             NAME     BIN      PATH\napp.cerebrai.workctl  workctl  workctl  " + workctlPath + "\n"; code != 0 || stdout != want || stderr != "" {
 		t.Errorf("got %d, %q, %q; want stdout %q", code, stdout, stderr, want)
 	}
 }
@@ -169,7 +171,7 @@ func TestExtensionsListNothingInstalled(t *testing.T) {
 	binDir(t)
 	writeBrainConfig(t, withWorkctl)
 	code, stdout, _ := runBrainctl("extensions", "ls")
-	if want := [][]string{{"EXTENSION", "BIN", "PATH"}, {"app.cerebrai.workctl", "workctl", "not found"}}; code != 0 || !reflect.DeepEqual(rows(t, stdout), want) {
+	if want := [][]string{{"EXTENSION", "NAME", "BIN", "PATH"}, {"app.cerebrai.workctl", "workctl", "workctl", "not found"}}; code != 0 || !reflect.DeepEqual(rows(t, stdout), want) {
 		t.Errorf("got %d, %q", code, stdout)
 	}
 }

@@ -45,7 +45,7 @@ func TestAddExtensionCannotWriteTemporaryFile(t *testing.T) {
 	dir := t.TempDir()
 	path := filepath.Join(dir, longName)
 	writeLong(t, path)
-	added, err := AddExtension(path, "app.cerebrai.workctl", 1)
+	added, err := addSettings(path, "app.cerebrai.workctl", 1)
 	if err == nil || added || !strings.Contains(err.Error(), "writing "+path) {
 		t.Errorf("AddExtension: %v, %v", added, err)
 	}

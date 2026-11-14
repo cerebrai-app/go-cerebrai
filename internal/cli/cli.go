@@ -11,6 +11,8 @@ import (
 	"fmt"
 	"io"
 	"path/filepath"
+	"slices"
+	"strings"
 
 	"github.com/cerebrai-app/go-cerebrai/brainconfig"
 	"github.com/cerebrai-app/go-cerebrai/internal/buildinfo"
@@ -150,15 +152,15 @@ func initWrites(prog Program) string {
 		return "Writes " + path + " in the brain home ($" + brainconfig.EnvVar + ",\n" +
 			"or the current directory) if it is missing"
 	}
-	return "Adds settings for extension " + prog.ExtensionID + ", with bin: " + prog.Name + ",\n" +
+	return "Adds settings for extension " + prog.ExtensionID + ", with name and bin " + prog.Name + ",\n" +
 		"in " + path + " " +
 		"in the brain home ($" + brainconfig.EnvVar + ", or the current directory),\n" +
 		"which brainctl init must have created"
 }
 
 // initConfig makes sure the config file at path exists and, for an extension
-// of brainctl, holds the extension's settings, including its executable, by
-// name, as bin. Only brainctl creates the file:
+// of brainctl, holds the extension's settings, including its name and its
+// executable, by name, as bin. Only brainctl creates the file:
 // an extension fails if brainctl init has not run yet.
 func initConfig(prog Program, path string, log io.Writer) error {
 	id := prog.ExtensionID
@@ -174,34 +176,35 @@ func initConfig(prog Program, path string, log io.Writer) error {
 		}
 		return nil
 	}
-	added, err := brainconfig.AddExtension(path, id, prog.ExtensionSchemaVersion)
+	// The program's name and bin are its own name, not where it is
+	// installed, so the file stays right on every machine it is backed up or
+	// committed to. A name or bin the user set, say an absolute path, is kept.
+	// Check existing settings in full before writing anything: AddExtension
+	// checks only the standard keys, and a failed init must leave the file
+	// as it was.
+	cfg, err := brainconfig.Load(path)
 	if err != nil {
 		return err
 	}
-	if !added {
-		// AddExtension checked only the version; check the rest too.
-		cfg, err := brainconfig.Load(path)
-		if err != nil {
-			return err
-		}
-		if _, err := cfg.DecodeExtension(id, prog.ExtensionSchemaVersion, new(extensionSettings)); err != nil {
-			return fmt.Errorf("%s: %w", path, err)
-		}
+	if _, err := cfg.DecodeExtension(id, prog.ExtensionSchemaVersion, new(extensionSettings)); err != nil {
+		return fmt.Errorf("%s: %w", path, err)
 	}
-	if added {
+	added, err := brainconfig.AddExtension(path, id, brainconfig.ExtensionBase{
+		SchemaVersion: prog.ExtensionSchemaVersion,
+		Name:          prog.Name,
+		Bin:           prog.Name,
+	})
+	if err != nil {
+		return err
+	}
+	switch {
+	case slices.Contains(added, "schema_version"):
 		_, _ = fmt.Fprintf(log, "Added settings for extension %s to %s\n", id, path)
-	} else {
+	case len(added) > 0:
+		_, _ = fmt.Fprintf(log, "Added %s to the existing settings for extension %s in %s\n",
+			strings.Join(added, " and "), id, path)
+	default:
 		_, _ = fmt.Fprintf(log, "Using existing settings for extension %s in %s\n", id, path)
-	}
-	// Set the program by name, not by where it is installed, so the file
-	// stays right on every machine it is backed up or committed to. A bin the
-	// user set, say an absolute path, is kept.
-	binAdded, err := brainconfig.AddExtensionBin(path, id, prog.Name)
-	if err != nil {
-		return err
-	}
-	if binAdded {
-		_, _ = fmt.Fprintf(log, "Set bin: %s for extension %s in %s\n", prog.Name, id, path)
 	}
 	return nil
 }

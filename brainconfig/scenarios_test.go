@@ -26,7 +26,7 @@ var badFiles = []struct{ name, content, wantErr string }{
 	{"negative schema version", "schema_version: -1\n", "invalid schema_version -1"},
 	{"schema version not a number", "schema_version: one\n", "invalid config file"},
 	{"newer schema version", "schema_version: 2\n", "schema_version 2, but this release reads only up to 1: upgrade"},
-	{"unknown top-level key", "schema_version: 1\ncolor: blue\n", "invalid config file"},
+	{"known key of the wrong type", "schema_version: 1\nextensions: yes\n", "invalid config file"},
 	{"extensions not a mapping", "schema_version: 1\nextensions: [a]\n", "invalid config file"},
 }
 
@@ -52,7 +52,7 @@ func TestAddExtensionRejectsBadFiles(t *testing.T) {
 	for _, tt := range badFiles {
 		t.Run(tt.name, func(t *testing.T) {
 			path := writeConfig(t, tt.content)
-			added, err := AddExtension(path, "app.cerebrai.workctl", 1)
+			added, err := addSettings(path, "app.cerebrai.workctl", 1)
 			if err == nil || added || !strings.Contains(err.Error(), tt.wantErr) {
 				t.Errorf("AddExtension: %v, %v; want an error containing %q", added, err, tt.wantErr)
 			}
@@ -93,7 +93,7 @@ func TestInitIgnoresExtensionSettings(t *testing.T) {
 func TestNoConfig(t *testing.T) {
 	path := Path(t.TempDir())
 	for name, err := range map[string]error{
-		"AddExtension": func() error { _, err := AddExtension(path, "app.cerebrai.workctl", 1); return err }(),
+		"AddExtension": func() error { _, err := addSettings(path, "app.cerebrai.workctl", 1); return err }(),
 		"Load":         func() error { _, err := Load(path); return err }(),
 	} {
 		if !errors.Is(err, ErrNoConfig) || !strings.Contains(err.Error(), "run brainctl init first") {
@@ -123,7 +123,7 @@ func TestAddExtensionRejectsBadSettings(t *testing.T) {
 		t.Run(tt.name, func(t *testing.T) {
 			content := "schema_version: 1\nextensions:\n  app.cerebrai.workctl: " + tt.settings + "\n"
 			path := writeConfig(t, content)
-			added, err := AddExtension(path, "app.cerebrai.workctl", 1)
+			added, err := addSettings(path, "app.cerebrai.workctl", 1)
 			if err == nil || added || !strings.Contains(err.Error(), tt.wantErr) {
 				t.Errorf("AddExtension: %v, %v; want an error containing %q", added, err, tt.wantErr)
 			}
@@ -139,7 +139,7 @@ func TestAddExtensionRejectsBadSettings(t *testing.T) {
 func TestAddExtensionLeavesOtherKeysToTheExtension(t *testing.T) {
 	const content = "schema_version: 1\nextensions:\n  com.example.tool: {schema_version: 1, color: blue}\n"
 	path := writeConfig(t, content)
-	if added, err := AddExtension(path, "com.example.tool", 1); err != nil || added {
+	if added, err := addSettings(path, "com.example.tool", 1); err != nil || added {
 		t.Errorf("AddExtension: %v, %v", added, err)
 	}
 	if got := readFile(t, path); got != content {
@@ -150,7 +150,7 @@ func TestAddExtensionLeavesOtherKeysToTheExtension(t *testing.T) {
 func TestAddExtensionRejectsBadIDs(t *testing.T) {
 	for _, id := range []string{"", "workctl", "example.tool", "com.Example.tool", "com.example.my_tool", "com.example.tool."} {
 		path := writeConfig(t, brainOnly)
-		if added, err := AddExtension(path, id, 1); err == nil || added || !strings.Contains(err.Error(), "invalid extension ID") {
+		if added, err := addSettings(path, id, 1); err == nil || added || !strings.Contains(err.Error(), "invalid extension ID") {
 			t.Errorf("%q: %v, %v", id, added, err)
 		}
 		if got := readFile(t, path); got != brainOnly {
@@ -162,7 +162,7 @@ func TestAddExtensionRejectsBadIDs(t *testing.T) {
 func TestAddExtensionRejectsBadSchemaVersions(t *testing.T) {
 	for _, v := range []int{0, -1} {
 		path := writeConfig(t, brainOnly)
-		if added, err := AddExtension(path, "com.example.tool", v); err == nil || added {
+		if added, err := addSettings(path, "com.example.tool", v); err == nil || added {
 			t.Errorf("%d: %v, %v", v, added, err)
 		}
 		if got := readFile(t, path); got != brainOnly {
@@ -192,7 +192,7 @@ func TestConfigLifecycle(t *testing.T) {
 		version int
 	}{{"app.cerebrai.workctl", 1}, {"com.example.tool", 3}}
 	for _, ext := range exts {
-		if added, err := AddExtension(path, ext.id, ext.version); err != nil || !added {
+		if added, err := addSettings(path, ext.id, ext.version); err != nil || !added {
 			t.Fatalf("AddExtension(%s): %v, %v", ext.id, added, err)
 		}
 	}
@@ -208,7 +208,7 @@ func TestConfigLifecycle(t *testing.T) {
 		t.Errorf("Init again: %v, %v", created, err)
 	}
 	for _, ext := range exts {
-		if added, err := AddExtension(path, ext.id, ext.version); err != nil || added {
+		if added, err := addSettings(path, ext.id, ext.version); err != nil || added {
 			t.Errorf("AddExtension(%s) again: %v, %v", ext.id, added, err)
 		}
 	}
@@ -261,7 +261,7 @@ func TestExtensionSettingsAcrossReleases(t *testing.T) {
 	if _, err := cfg.DecodeExtension("com.example.tool", 1, &s); err == nil || !strings.Contains(err.Error(), "upgrade") {
 		t.Errorf("release reading up to 1: %v", err)
 	}
-	if _, err := AddExtension(path, "com.example.tool", 1); err == nil || !strings.Contains(err.Error(), "upgrade") {
+	if _, err := addSettings(path, "com.example.tool", 1); err == nil || !strings.Contains(err.Error(), "upgrade") {
 		t.Errorf("AddExtension from release reading up to 1: %v", err)
 	}
 }
@@ -300,5 +300,30 @@ func TestInitWritesReadableFile(t *testing.T) {
 	cfg, err := Load(path)
 	if err != nil || cfg.SchemaVersion != SchemaVersion || len(cfg.ExtensionIDs()) != 0 {
 		t.Errorf("Load: %+v, %v", cfg, err)
+	}
+}
+
+// Top-level keys this release does not know, from a newer release or the
+// user, are ignored on reading and kept on writing.
+func TestUnknownTopLevelKeys(t *testing.T) {
+	const content = "schema_version: 1\n# notes\nowner: me # the user's own\n" +
+		"future_feature:\n  enabled: true\n  list: [1, 2]\nextension_bins: [workctl]\n"
+	cfg, err := Unmarshal([]byte(content))
+	if err != nil || cfg.SchemaVersion != 1 || len(cfg.ExtensionIDs()) != 0 {
+		t.Fatalf("Unmarshal: %+v, %v", cfg, err)
+	}
+	path := writeConfig(t, content)
+	if created, err := Init(path); err != nil || created {
+		t.Errorf("Init: %v, %v", created, err)
+	}
+	if got := readFile(t, path); got != content {
+		t.Errorf("Init changed the file to %q", got)
+	}
+	if _, err := AddExtension(path, "app.cerebrai.workctl", workctlBase); err != nil {
+		t.Fatal(err)
+	}
+	want := content + "extensions:\n  app.cerebrai.workctl:\n    schema_version: 1\n    name: workctl\n    bin: workctl\n"
+	if got := readFile(t, path); got != want {
+		t.Errorf("file = %q, want %q", got, want)
 	}
 }

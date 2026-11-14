@@ -9,17 +9,20 @@
 //	extensions:
 //	  app.cerebrai.workctl:
 //	    schema_version: 1
+//	    name: workctl
 //	    bin: workctl
 //	  com.example.tool:
 //	    schema_version: 3
+//	    name: Example Tool
 //	    bin: /opt/example/bin/tool
 //	    anything: the extension likes
 //
-// Two keys in an extension's settings are standard, and ExtensionBase holds
-// them: schema_version, and bin, the extension's executable, which brainctl
-// can discover. bin is a bare name, looked up on PATH, or an absolute path
-// (see CheckBin); a bare name suits a file that is committed or backed up,
-// since it does not tie the file to one machine's layout.
+// Three keys in an extension's settings are standard, and ExtensionBase holds
+// them: schema_version; name, what to call the extension (see CheckName); and
+// bin, the extension's executable, which brainctl can discover. bin is a bare
+// name, looked up on PATH, or an absolute path (see CheckBin); a bare name
+// suits a file that is committed or backed up, since it does not tie the file
+// to one machine's layout.
 //
 // The rules every extension follows, whether it uses this package or edits
 // the YAML itself:
@@ -30,18 +33,19 @@
 //     never pick the same key. See CheckID for the exact form.
 //   - Its settings are a mapping holding schema_version: a positive integer
 //     that the extension numbers on its own, independently of the file's.
-//   - Its settings hold bin, its executable, with AddExtensionBin, unless
-//     the user has set one already.
+//   - Its settings hold its name and bin, unless the user has set them
+//     already: AddExtension fills in whichever are missing.
 //   - It changes nothing outside its own settings: not the top-level keys,
 //     not other extensions, and it keeps unknown content as it is.
 //   - It refuses settings with a schema_version newer than it reads, instead
 //     of misreading them.
 //
-// brainctl in turn checks only the top level: a schema_version it reads, no
-// top-level keys it does not know, and extensions being a mapping. Reading
-// the file never looks inside an extension's settings, so a broken or newer
-// extension can never stop brainctl; listing extensions reads each one's bin
-// with Config.ExtensionBin and reports a bad one for that extension alone.
+// brainctl in turn checks only the top level: a schema_version it reads, and
+// extensions being a mapping. It ignores top-level keys it does not know, and
+// edits keep them. Reading the file never looks inside an extension's
+// settings, so a broken or newer extension can never stop brainctl; listing
+// extensions reads each one's standard keys with Config.Extension and reports
+// a bad one for that extension alone.
 //
 // The file's own schema_version lets a later release tell an older file apart
 // and migrate it, and an older release refuses a file written by a newer one.
@@ -108,22 +112,40 @@ type ExtensionBase struct {
 	// SchemaVersion is the format of the extension's settings. Each
 	// extension numbers its own formats, independently of the file's.
 	SchemaVersion int `yaml:"schema_version"`
+	// Name is what to call the extension, for people: one line of text, such
+	// as "workctl" or "Example Tool". Empty if not set.
+	Name string `yaml:"name,omitempty"`
 	// Bin is the extension's executable, which brainctl can discover: a bare
 	// name, looked up on PATH, or an absolute path. Empty if not set.
 	Bin string `yaml:"bin,omitempty"`
 }
 
-// ExtensionBin is the bin of the extension with ID id: "" if the extension
-// has no settings or they set no bin, and an error if its settings are not a
-// mapping or bin is not one CheckBin accepts. The schema_version is not
-// checked: brainctl lists extensions whatever their format.
-func (c Config) ExtensionBin(id string) (string, error) {
+// Extension is the standard keys of the settings of the extension with ID
+// id. ok is false if it has no settings. It is an error if they are not a
+// mapping, or name or bin is set but not valid (see CheckName and CheckBin).
+// The schema_version is not checked: brainctl lists extensions whatever
+// their format.
+func (c Config) Extension(id string) (base ExtensionBase, ok bool, err error) {
 	node, ok := c.extensions[id]
 	if !ok {
-		return "", nil
+		return ExtensionBase{}, false, nil
 	}
-	base, err := extensionBase(id, &node)
-	return base.Bin, err
+	base, err = extensionBase(id, &node)
+	return base, true, err
+}
+
+// CheckName returns an error if name cannot be an extension's name: it must
+// be one line of text, not empty and without leading or trailing space.
+func CheckName(name string) error {
+	switch {
+	case strings.TrimSpace(name) == "":
+		return errors.New("invalid name: empty")
+	case name != strings.TrimSpace(name):
+		return fmt.Errorf("invalid name %q: leading or trailing space", name)
+	case strings.ContainsAny(name, "\r\n"):
+		return fmt.Errorf("invalid name %q: it must be one line", name)
+	}
+	return nil
 }
 
 // CheckBin returns an error if bin cannot be an extension's executable: it
@@ -204,7 +226,8 @@ func (c Config) DecodeExtension(id string, schemaVersion int, v any) (ok bool, e
 }
 
 // extensionBase reads the standard keys of the extension settings in node,
-// checking that they are a mapping and that bin, if there, is valid.
+// checking that they are a mapping and that name and bin, if there, are
+// valid.
 func extensionBase(id string, node *yaml.Node) (ExtensionBase, error) {
 	if node.Kind != yaml.MappingNode {
 		return ExtensionBase{}, fmt.Errorf("invalid config file: the settings for extension %s must be a mapping", id)
@@ -213,8 +236,14 @@ func extensionBase(id string, node *yaml.Node) (ExtensionBase, error) {
 	if err := node.Decode(&base); err != nil {
 		return ExtensionBase{}, fmt.Errorf("invalid settings for extension %s: %w", id, err)
 	}
-	if mappingValue(node, "bin") != nil {
-		if err := CheckBin(base.Bin); err != nil {
+	for key, check := range map[string]func() error{
+		"name": func() error { return CheckName(base.Name) },
+		"bin":  func() error { return CheckBin(base.Bin) },
+	} {
+		if mappingValue(node, key) == nil {
+			continue
+		}
+		if err := check(); err != nil {
 			return ExtensionBase{}, fmt.Errorf("invalid settings for extension %s: %w", id, err)
 		}
 	}
@@ -307,34 +336,70 @@ func Init(path string) (created bool, err error) {
 	return true, nil
 }
 
-// AddExtension adds settings for the extension with ID id, holding only
-// schema_version: schemaVersion, to the config file at path, which must exist
-// and be valid: an extension never creates the file, since that is brainctl
-// init's job. A missing file is an ErrNoConfig error.
-// If the extension is already there it is never replaced and added is false;
-// only its schema_version is checked (against schemaVersion as the newest),
-// since the caller knows best what else to check, with DecodeExtension. Other
-// content and comments are kept; blank lines are not.
-func AddExtension(path, id string, schemaVersion int) (added bool, err error) {
+// AddExtension makes sure the config file at path holds settings for the
+// extension with ID id, with want's standard keys: want.SchemaVersion is the
+// format the caller writes and the newest it reads, and want.Name and
+// want.Bin, if not empty, are its name and executable (see CheckName and
+// CheckBin).
+//
+// Missing settings are added, holding schema_version, name and bin. Existing
+// settings are checked (a mapping, a schema_version from 1 to
+// want.SchemaVersion, a valid name and bin) and never replaced: only a
+// missing name or bin is filled in, so values the user set are kept. added
+// lists the keys written, in the file's order; it is empty if nothing was.
+//
+// The file must exist and be valid: an extension never creates it, since
+// that is brainctl init's job, and a missing file is an ErrNoConfig error.
+// Other content and comments are kept; blank lines are not.
+func AddExtension(path, id string, want ExtensionBase) (added []string, err error) {
 	if err := CheckID(id); err != nil {
-		return false, err
+		return nil, err
 	}
-	if schemaVersion < 1 {
-		return false, fmt.Errorf("invalid schema version %d for extension %s: it must be at least 1", schemaVersion, id)
+	if want.SchemaVersion < 1 {
+		return nil, fmt.Errorf("invalid schema version %d for extension %s: it must be at least 1", want.SchemaVersion, id)
+	}
+	if want.Name != "" {
+		if err := CheckName(want.Name); err != nil {
+			return nil, err
+		}
+	}
+	if want.Bin != "" {
+		if err := CheckBin(want.Bin); err != nil {
+			return nil, err
+		}
 	}
 	data, err := readConfig(path)
 	if err != nil {
-		return false, err
+		return nil, err
 	}
 	cfg, err := Unmarshal(data)
 	if err != nil {
-		return false, fmt.Errorf("%s: %w", path, err)
+		return nil, fmt.Errorf("%s: %w", path, err)
 	}
-	if node, ok := cfg.extensions[id]; ok {
-		if _, err := extensionHeader(id, &node, schemaVersion); err != nil {
-			return false, fmt.Errorf("%s: %w", path, err)
+
+	// The keys to write, and their values, in the order they go in.
+	var keys []string
+	values := map[string]*yaml.Node{
+		"schema_version": {Kind: yaml.ScalarNode, Tag: "!!int", Value: strconv.Itoa(want.SchemaVersion)},
+		"name":           scalar(want.Name),
+		"bin":            scalar(want.Bin),
+	}
+	node, exists := cfg.extensions[id]
+	if exists {
+		if _, err := extensionHeader(id, &node, want.SchemaVersion); err != nil {
+			return nil, fmt.Errorf("%s: %w", path, err)
 		}
-		return false, nil
+	} else {
+		keys = append(keys, "schema_version")
+	}
+	if want.Name != "" && (!exists || mappingValue(&node, "name") == nil) {
+		keys = append(keys, "name")
+	}
+	if want.Bin != "" && (!exists || mappingValue(&node, "bin") == nil) {
+		keys = append(keys, "bin")
+	}
+	if len(keys) == 0 {
+		return nil, nil
 	}
 
 	err = editConfig(path, data, func(root *yaml.Node) {
@@ -344,56 +409,19 @@ func AddExtension(path, id string, schemaVersion int) (added bool, err error) {
 			root.Content = append(root.Content, scalar("extensions"), exts)
 		}
 		makeBlock(exts, yaml.MappingNode, "!!map")
-		exts.Content = append(exts.Content, scalar(id), &yaml.Node{Kind: yaml.MappingNode, Tag: "!!map",
-			Content: []*yaml.Node{scalar("schema_version"),
-				{Kind: yaml.ScalarNode, Tag: "!!int", Value: strconv.Itoa(schemaVersion)}}})
+		ext := mappingValue(exts, id)
+		if ext == nil {
+			ext = &yaml.Node{Kind: yaml.MappingNode, Tag: "!!map"}
+			exts.Content = append(exts.Content, scalar(id), ext)
+		}
+		for _, key := range keys {
+			ext.Content = append(ext.Content, scalar(key), values[key])
+		}
 	})
 	if err != nil {
-		return false, err
+		return nil, err
 	}
-	return true, nil
-}
-
-// AddExtensionBin sets bin, the executable of the extension with ID id, in
-// its settings in the config file at path, unless they set one already: one
-// the user wrote, say an absolute path, is never replaced. The settings must
-// exist (see AddExtension), and the file must exist and be valid (a missing
-// file is an ErrNoConfig error). bin is a bare name, looked up on PATH, or an
-// absolute path; see CheckBin. added is false if a bin was set already. Other
-// content and comments are kept; blank lines are not.
-func AddExtensionBin(path, id, bin string) (added bool, err error) {
-	if err := CheckID(id); err != nil {
-		return false, err
-	}
-	if err := CheckBin(bin); err != nil {
-		return false, err
-	}
-	data, err := readConfig(path)
-	if err != nil {
-		return false, err
-	}
-	cfg, err := Unmarshal(data)
-	if err != nil {
-		return false, fmt.Errorf("%s: %w", path, err)
-	}
-	node, ok := cfg.extensions[id]
-	if !ok {
-		return false, fmt.Errorf("%s: no settings for extension %s to set its bin in", path, id)
-	}
-	if _, err := extensionBase(id, &node); err != nil {
-		return false, fmt.Errorf("%s: %w", path, err)
-	}
-	if mappingValue(&node, "bin") != nil {
-		return false, nil
-	}
-	err = editConfig(path, data, func(root *yaml.Node) {
-		ext := mappingValue(mappingValue(root, "extensions"), id)
-		ext.Content = append(ext.Content, scalar("bin"), scalar(bin))
-	})
-	if err != nil {
-		return false, err
-	}
-	return true, nil
+	return keys, nil
 }
 
 // editConfig applies edit to the top-level mapping of data, the content of
@@ -504,13 +532,13 @@ func Load(path string) (Config, error) {
 }
 
 // Unmarshal decodes the config file's YAML and checks it: it must be one
-// mapping with a schema_version this release reads, no top-level keys it does
-// not know, and extensions, if there, a mapping. What each extension holds
-// is not checked: see DecodeExtension and ExtensionBin.
+// mapping with a schema_version this release reads, and extensions, if there,
+// a mapping. Top-level keys it does not know are ignored, so a file can carry
+// keys from a newer release, or the user's own, without breaking this one. What each extension holds
+// is not checked: see DecodeExtension and Config.Extension.
 func Unmarshal(data []byte) (Config, error) {
 	var f file
 	dec := yaml.NewDecoder(bytes.NewReader(data))
-	dec.KnownFields(true)
 	if err := dec.Decode(&f); err != nil {
 		if errors.Is(err, io.EOF) {
 			return Config{}, errors.New("config file is empty")

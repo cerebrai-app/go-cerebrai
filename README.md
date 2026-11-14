@@ -104,9 +104,10 @@ schema_version: 1
 ```
 
 `schema_version` is the file's format. If the file already exists, `init` leaves it unchanged but
-checks that it is valid YAML with only known keys and a `schema_version` this release supports. A
-file from a newer release (a higher `schema_version`) is an error, so `init` stops before
-downloading anything.
+checks that it is valid YAML with a `schema_version` this release supports. A file from a newer
+release (a higher `schema_version`) is an error, so `init` stops before downloading anything.
+Top-level keys `brainctl` doesn't know, whether from a newer release or your own, are ignored,
+and kept when an extension edits the file.
 
 `workctl` is an extension of `brainctl` and shares its config file. `workctl init` adds its
 settings under `extensions`, keyed by its ID `app.cerebrai.workctl`. Run `brainctl init` first:
@@ -117,21 +118,24 @@ schema_version: 1
 extensions:
   app.cerebrai.workctl:
     schema_version: 1
+    name: workctl
     bin: workctl
 ```
 
-Two keys are standard in every extension's settings:
+Three keys are standard in every extension's settings:
 
 - `schema_version` is the format of the extension's own settings, numbered independently of the
   file's `schema_version`.
+- `name` is what to call the extension: one line of text, such as `workctl` or `Example Tool`.
 - `bin` is the extension's executable, which `brainctl` can discover: a bare name, looked up on
   `PATH`, or an absolute path for one that isn't on `PATH`. A relative path with a directory in it
   (`bin/workctl`) is an error, since it would depend on the current directory. Extensions set
   themselves by name, so the file works on every machine it is backed up or committed to.
 
-`workctl init` never changes existing settings for `app.cerebrai.workctl`, except to add `bin` if
-it is missing: a `bin` you set yourself, say `/opt/tools/bin/workctl`, is kept. It checks the
-settings, though: only known keys, a valid `bin`, and a `schema_version` this release of `workctl`
+`workctl init` never changes existing settings for `app.cerebrai.workctl`, except to add `name`
+or `bin` if one is missing: a `name` or `bin` you set yourself, say `/opt/tools/bin/workctl`, is
+kept. It checks the settings first, though, and changes nothing if they are wrong: only keys
+`workctl` knows, a valid `name` and `bin`, and a `schema_version` this release of `workctl`
 supports. Adding the key rewrites the file: comments and key order are kept, but blank lines are
 dropped and indentation becomes two spaces.
 
@@ -171,19 +175,20 @@ the binaries themselves are static.
 ### `extensions`
 
 `brainctl extensions ls` (or `l`, or `list`) lists the extensions with settings in the brain
-home's config file, with each one's `bin` and where that is found: on `PATH` for a bare name, or at
-its absolute path.
+home's config file, with each one's `name`, its `bin`, and where that is found: on `PATH` for a
+bare name, or at its absolute path.
 
 ```console
 $ brainctl extensions ls
-EXTENSION             BIN                    PATH
-app.cerebrai.workctl  workctl                /usr/local/bin/workctl
-com.example.tool      /opt/example/bin/tool  not found
+EXTENSION             NAME          BIN                    PATH
+app.cerebrai.workctl  workctl       workctl                /usr/local/bin/workctl
+com.example.tool      Example Tool  /opt/example/bin/tool  not found
 ```
 
 An extension that isn't installed shows as `not found` (or `not executable`) rather than making
 the command fail: the config is the same file on every machine it is backed up or committed to,
-and not every machine has every extension. An extension with no `bin` shows `no bin set`, and one
+and not every machine has every extension. An extension with no `name` shows `-`, one with no
+`bin` shows `no bin set`, and one
 whose settings are broken shows why, in its own row, without hiding the others. A missing or
 invalid config file is an error. The table goes to stdout; with no extensions, stdout is empty
 and a note goes to stderr.
@@ -203,12 +208,14 @@ executable. The rules:
 - **Shape.** The value is a mapping with a `schema_version`: a positive integer for the format of
   the extension's settings. The extension numbers its own versions, starting at 1, independently
   of the file's `schema_version` and of other extensions.
-- **Set your `bin`.** Add `bin` to your settings if it isn't there: your executable's name if it is
-  installed on `PATH`, otherwise its absolute path. Never replace a `bin` the user set.
+- **Set your `name` and `bin`.** Add them to your settings if they aren't there: a one-line `name`
+  for people, and as `bin` your executable's name if it is installed on `PATH`, otherwise its
+  absolute path. Never replace a `name` or `bin` the user set.
 - **Find the file the same way.** The brain home is `$BRAIN_HOME` if set (an existing
   directory; a relative path is taken from the current directory), otherwise the current directory.
 - **Write only your own key.** Don't change the top-level keys or other extensions' settings, and
-  keep content you don't understand. Never create the file: if it is
+  keep content you don't understand, including top-level keys you don't know: ignore them rather
+  than rejecting the file. Never create the file: if it is
   missing, fail and ask the user to run `brainctl init`.
 - **Check the versions.** Refuse a file whose top-level `schema_version` is newer than you know
   (currently `1`), and settings whose `schema_version` is newer than your release reads, rather
@@ -219,9 +226,11 @@ schema_version: 1
 extensions:
   app.cerebrai.workctl:
     schema_version: 1
+    name: workctl
     bin: workctl
   com.example.tool:
     schema_version: 3
+    name: Example Tool
     bin: /opt/example/bin/tool
     color: blue
 ```
@@ -232,7 +241,7 @@ Extensions written in Go can import [`brainconfig`](brainconfig), which follows 
 import "github.com/cerebrai-app/go-cerebrai/brainconfig"
 
 type settings struct {
-	brainconfig.ExtensionBase `yaml:",inline"` // schema_version and bin
+	brainconfig.ExtensionBase `yaml:",inline"` // schema_version, name and bin
 	Color                     string           `yaml:"color"`
 }
 
@@ -241,22 +250,23 @@ if err != nil {
 	return err
 }
 path := brainconfig.Path(dir)
-// Add your key if it is missing. A missing file is an error matching
-// brainconfig.ErrNoConfig, which asks the user to run brainctl init.
-if _, err := brainconfig.AddExtension(path, "com.example.tool", 3); err != nil {
-	return err
-}
-// Set your bin, for brainctl to discover, unless the user set one.
-if _, err := brainconfig.AddExtensionBin(path, "com.example.tool", "tool"); err != nil {
-	return err
-}
-// Read your settings; this rejects unknown keys and newer versions.
+// Read and check your settings first, so a bad file is left as it is; this
+// rejects unknown keys and newer versions. A missing file is an error
+// matching brainconfig.ErrNoConfig, which asks the user to run brainctl init.
 cfg, err := brainconfig.Load(path)
 if err != nil {
 	return err
 }
 var s settings
 if _, err := cfg.DecodeExtension("com.example.tool", 3, &s); err != nil {
+	return err
+}
+// Add your settings, or fill in a missing name or bin, keeping what the user set.
+if _, err := brainconfig.AddExtension(path, "com.example.tool", brainconfig.ExtensionBase{
+	SchemaVersion: 3,
+	Name:          "Example Tool",
+	Bin:           "tool",
+}); err != nil {
 	return err
 }
 ```
