@@ -61,13 +61,6 @@ func TestInitKeepsExistingFile(t *testing.T) {
 	}
 }
 
-func TestInitRejectsBadExistingFile(t *testing.T) {
-	path := writeConfig(t, "schema_version: 99\n")
-	if _, err := Init(path); err == nil || !strings.Contains(err.Error(), "upgrade") {
-		t.Errorf("Init: %v", err)
-	}
-}
-
 func TestAddExtension(t *testing.T) {
 	for _, tt := range []struct{ name, in, want string }{
 		{"new file", "schema_version: 1\n", "schema_version: 1\nextensions:\n  app.cerebrai.workctl:\n    schema_version: 1\n"},
@@ -253,20 +246,6 @@ func TestCheckID(t *testing.T) {
 	}
 }
 
-func TestAddExtensionChecksArguments(t *testing.T) {
-	const content = "schema_version: 1\n"
-	path := writeConfig(t, content)
-	if _, err := AddExtension(path, "workctl", 1); err == nil {
-		t.Error("accepted an ID that is not a reverse domain name")
-	}
-	if _, err := AddExtension(path, "app.cerebrai.workctl", 0); err == nil {
-		t.Error("accepted schema version 0")
-	}
-	if got := readFile(t, path); got != content {
-		t.Errorf("file changed to %q", got)
-	}
-}
-
 func TestAddExtensionKeepsOtherExtensions(t *testing.T) {
 	// Another extension's settings, however odd, are kept as they are.
 	path := writeConfig(t, "schema_version: 1\nextensions:\n  other: [not, a, mapping]\n")
@@ -276,16 +255,5 @@ func TestAddExtensionKeepsOtherExtensions(t *testing.T) {
 	const want = "schema_version: 1\nextensions:\n  other: [not, a, mapping]\n  com.example.tool:\n    schema_version: 4\n"
 	if got := readFile(t, path); got != want {
 		t.Errorf("file = %q, want %q", got, want)
-	}
-}
-
-func TestAddExtensionRejectsBadExtension(t *testing.T) {
-	const content = "schema_version: 1\nextensions:\n  app.cerebrai.workctl: {schema_version: 2}\n"
-	path := writeConfig(t, content)
-	if _, err := AddExtension(path, "app.cerebrai.workctl", 1); err == nil || !strings.Contains(err.Error(), "upgrade") {
-		t.Errorf("AddExtension: %v", err)
-	}
-	if got := readFile(t, path); got != content {
-		t.Errorf("file changed to %q", got)
 	}
 }

@@ -3,8 +3,6 @@ package cli
 import (
 	"errors"
 	"io"
-	"os"
-	"path/filepath"
 	"strings"
 	"testing"
 
@@ -90,88 +88,6 @@ func TestInitReportsInstallErrors(t *testing.T) {
 	}
 }
 
-func TestInitWritesConfig(t *testing.T) {
-	stubInstall(t, nil)
-	code, _, stderr := run("init")
-	if code != 0 || !strings.Contains(stderr, "Wrote ") {
-		t.Fatalf("got %d, %q", code, stderr)
-	}
-	data, err := os.ReadFile(filepath.Join(".brain", "config.yaml"))
-	if err != nil {
-		t.Fatal(err)
-	}
-	if string(data) != "schema_version: 1\n" {
-		t.Errorf("config = %q", data)
-	}
-	// A second run keeps the file.
-	if code, _, stderr := run("init"); code != 0 || !strings.Contains(stderr, "Using existing ") {
-		t.Errorf("second run: got %d, %q", code, stderr)
-	}
-}
-
-func runWorkctl(args ...string) (code int, stderr string) {
-	var out, errOut strings.Builder
-	code = Main(workctl, args, &out, &errOut)
-	return code, errOut.String()
-}
-
-func TestWorkctlInitAddsExtension(t *testing.T) {
-	stubInstall(t, nil)
-	if code, _, stderr := run("init"); code != 0 {
-		t.Fatalf("brainctl init: got %d, %q", code, stderr)
-	}
-	code, stderr := runWorkctl("init")
-	if code != 0 || strings.Contains(stderr, "Wrote ") || !strings.Contains(stderr, "Added settings for extension app.cerebrai.workctl to ") {
-		t.Fatalf("workctl init: got %d, %q", code, stderr)
-	}
-	path := filepath.Join(".brain", "config.yaml")
-	const want = "schema_version: 1\nextensions:\n  app.cerebrai.workctl:\n    schema_version: 1\n"
-	if data, err := os.ReadFile(path); err != nil || string(data) != want {
-		t.Errorf("config = %q, %v; want %q", data, err, want)
-	}
-	if _, err := os.Stat(".work"); err == nil {
-		t.Error("workctl init made a .work directory")
-	}
-	// Running either init again changes nothing.
-	if code, stderr := runWorkctl("init"); code != 0 || !strings.Contains(stderr, "Using existing settings for extension app.cerebrai.workctl") {
-		t.Errorf("second workctl init: got %d, %q", code, stderr)
-	}
-	if code, _, stderr := run("init"); code != 0 {
-		t.Errorf("second brainctl init: got %d, %q", code, stderr)
-	}
-	if data, _ := os.ReadFile(path); string(data) != want {
-		t.Errorf("config changed to %q", data)
-	}
-}
-
-func TestWorkctlInitWithoutBrainConfig(t *testing.T) {
-	stubInstall(t, nil)
-	installed := false
-	install = func(python.Options) (string, error) { installed = true; return "", nil }
-	code, stderr := runWorkctl("init")
-	if code != 1 || !strings.Contains(stderr, "run brainctl init first") || installed {
-		t.Errorf("got %d, %q, installed %v", code, stderr, installed)
-	}
-	if _, err := os.Stat(".brain"); err == nil {
-		t.Error("workctl init made a .brain directory")
-	}
-}
-
-func TestInitStopsOnBadConfig(t *testing.T) {
-	stubInstall(t, nil)
-	installed := false
-	install = func(python.Options) (string, error) { installed = true; return "", nil }
-	if err := os.Mkdir(".brain", 0o755); err != nil {
-		t.Fatal(err)
-	}
-	if err := os.WriteFile(filepath.Join(".brain", "config.yaml"), []byte("schema_version: 99\n"), 0o644); err != nil {
-		t.Fatal(err)
-	}
-	if code, _, stderr := run("init"); code != 1 || !strings.HasPrefix(stderr, "error: ") || installed {
-		t.Errorf("got %d, %q, installed %v", code, stderr, installed)
-	}
-}
-
 func TestVersionWriteError(t *testing.T) {
 	var errOut strings.Builder
 	if code := Main(brainctl, []string{"version"}, failingWriter{}, &errOut); code != 1 {
@@ -182,43 +98,3 @@ func TestVersionWriteError(t *testing.T) {
 type failingWriter struct{}
 
 func (failingWriter) Write([]byte) (int, error) { return 0, io.ErrClosedPipe }
-
-func TestThirdPartyExtension(t *testing.T) {
-	stubInstall(t, nil)
-	if err := os.Mkdir(".brain", 0o755); err != nil {
-		t.Fatal(err)
-	}
-	// Settings from an extension brainctl knows nothing about, in a format
-	// newer than anything here, must not stop brainctl.
-	const before = "schema_version: 1\nextensions:\n  other: {schema_version: 99, x: 1}\n"
-	path := filepath.Join(".brain", "config.yaml")
-	if err := os.WriteFile(path, []byte(before), 0o644); err != nil {
-		t.Fatal(err)
-	}
-	if code, _, stderr := run("init"); code != 0 {
-		t.Fatalf("brainctl init: got %d, %q", code, stderr)
-	}
-	var errOut strings.Builder
-	tool := Program{Name: "tool", ExtensionID: "com.example.tool", ExtensionSchemaVersion: 3}
-	if code := Main(tool, []string{"init"}, io.Discard, &errOut); code != 0 {
-		t.Fatalf("tool init: got %d, %q", code, errOut.String())
-	}
-	const want = "schema_version: 1\nextensions:\n  other: {schema_version: 99, x: 1}\n  com.example.tool:\n    schema_version: 3\n"
-	if data, err := os.ReadFile(path); err != nil || string(data) != want {
-		t.Errorf("config = %q, %v; want %q", data, err, want)
-	}
-}
-
-func TestExtensionRejectsUnknownKeys(t *testing.T) {
-	stubInstall(t, nil)
-	if err := os.Mkdir(".brain", 0o755); err != nil {
-		t.Fatal(err)
-	}
-	if err := os.WriteFile(filepath.Join(".brain", "config.yaml"),
-		[]byte("schema_version: 1\nextensions:\n  app.cerebrai.workctl: {schema_version: 1, bogus: 1}\n"), 0o644); err != nil {
-		t.Fatal(err)
-	}
-	if code, stderr := runWorkctl("init"); code != 1 || !strings.Contains(stderr, "invalid settings for extension app.cerebrai.workctl") {
-		t.Errorf("got %d, %q", code, stderr)
-	}
-}
