@@ -22,6 +22,13 @@ concurrency:
 
 jobs:
   release:
-    uses: cerebrai-app/actions/.github/workflows/go-release.yml@6c7462b52d1f52725638f65225ddbec7cd076659 # v2.0.0
+    uses: cerebrai-app/actions/.github/workflows/go-release.yml@8f644ffd0ee167e2441bc2838f05b3884894657c # v3.0.0
     permissions:
-      contents: write # the publish job creates the release
+      contents: write # create the release
+      id-token: write # sign the build attestations
+      attestations: write # store them
+    with:
+      tap-repositories: homebrew-tap,scoop-bucket
+    secrets:
+      tap-app-client-id: ${{ secrets.RELEASE_APP_CLIENT_ID }}
+      tap-app-private-key: ${{ secrets.RELEASE_APP_PRIVATE_KEY }}
