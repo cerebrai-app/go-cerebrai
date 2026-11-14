@@ -101,8 +101,8 @@ type file struct {
 }
 
 // ExtensionBase holds the standard keys of an extension's settings. An
-// extension embeds it in the type it decodes its settings into, so that
-// DecodeExtension, which rejects unknown keys, accepts them:
+// extension embeds it in the type it decodes its settings into, to read
+// them with its own:
 //
 //	type settings struct {
 //		brainconfig.ExtensionBase `yaml:",inline"`
@@ -201,9 +201,11 @@ func CheckID(id string) error {
 // DecodeExtension decodes the settings of the extension with ID id into v,
 // normally a pointer to a struct that embeds ExtensionBase inline.
 // schemaVersion is the newest format the caller reads: settings without a
-// schema_version, with a newer one, with a bad bin, or with keys that v has
-// no field for are an error. ok is false, and v is untouched, if
-// the extension has no settings.
+// schema_version, with a newer one, with a bad name or bin, or with a value of
+// the wrong type for its field in v are an error. Keys that v has no field for
+// are ignored, so settings can carry keys from a newer release of the
+// extension, or the user's own. ok is false, and v is untouched, if the
+// extension has no settings.
 func (c Config) DecodeExtension(id string, schemaVersion int, v any) (ok bool, err error) {
 	node, ok := c.extensions[id]
 	if !ok {
@@ -212,14 +214,7 @@ func (c Config) DecodeExtension(id string, schemaVersion int, v any) (ok bool, e
 	if _, err := extensionHeader(id, &node, schemaVersion); err != nil {
 		return true, err
 	}
-	// yaml.Node.Decode cannot reject unknown keys, so go through a Decoder.
-	data, err := yaml.Marshal(&node)
-	if err != nil {
-		return true, err
-	}
-	dec := yaml.NewDecoder(bytes.NewReader(data))
-	dec.KnownFields(true)
-	if err := dec.Decode(v); err != nil {
+	if err := node.Decode(v); err != nil {
 		return true, fmt.Errorf("invalid settings for extension %s: %w", id, err)
 	}
 	return true, nil

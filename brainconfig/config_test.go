@@ -206,8 +206,10 @@ func TestDecodeExtension(t *testing.T) {
 	if _, err := cfg.DecodeExtension("app.cerebrai.workctl", 1, &w); err == nil || !strings.Contains(err.Error(), "schema_version 2 for extension app.cerebrai.workctl, but this release reads only up to 1") {
 		t.Errorf("too new: %v", err)
 	}
-	if _, err := cfg.DecodeExtension("com.example.tool", 3, &w); err == nil || !strings.Contains(err.Error(), "invalid settings for extension com.example.tool") {
-		t.Errorf("unknown key: %v", err)
+	// color has no field in w: it is ignored, not an error.
+	w = workctlSettings{}
+	if ok, err := cfg.DecodeExtension("com.example.tool", 3, &w); err != nil || !ok || w.SchemaVersion != 3 {
+		t.Errorf("unknown key: %+v, %v, %v", w, ok, err)
 	}
 	for in, wantErr := range map[string]string{
 		"app.cerebrai.workctl: 1":                    "settings for extension app.cerebrai.workctl must be a mapping",

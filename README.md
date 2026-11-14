@@ -134,9 +134,10 @@ Three keys are standard in every extension's settings:
 
 `workctl init` never changes existing settings for `app.cerebrai.workctl`, except to add `name`
 or `bin` if one is missing: a `name` or `bin` you set yourself, say `/opt/tools/bin/workctl`, is
-kept. It checks the settings first, though, and changes nothing if they are wrong: only keys
-`workctl` knows, a valid `name` and `bin`, and a `schema_version` this release of `workctl`
-supports. Adding the key rewrites the file: comments and key order are kept, but blank lines are
+kept. It checks the settings first, though, and changes nothing if they are wrong: a valid `name`
+and `bin`, values of the right type, and a `schema_version` this release of `workctl` supports.
+Keys in its settings that `workctl` doesn't know, from a newer release or your own, are ignored
+and kept. Adding the key rewrites the file: comments and key order are kept, but blank lines are
 dropped and indentation becomes two spaces.
 
 `brainctl` never looks inside `extensions`, beyond checking that it is a mapping, so it works with
@@ -214,8 +215,8 @@ executable. The rules:
 - **Find the file the same way.** The brain home is `$BRAIN_HOME` if set (an existing
   directory; a relative path is taken from the current directory), otherwise the current directory.
 - **Write only your own key.** Don't change the top-level keys or other extensions' settings, and
-  keep content you don't understand, including top-level keys you don't know: ignore them rather
-  than rejecting the file. Never create the file: if it is
+  keep content you don't understand, including keys you don't know, at the top level or in your
+  own settings: ignore them rather than rejecting the file. Never create the file: if it is
   missing, fail and ask the user to run `brainctl init`.
 - **Check the versions.** Refuse a file whose top-level `schema_version` is newer than you know
   (currently `1`), and settings whose `schema_version` is newer than your release reads, rather
@@ -251,7 +252,8 @@ if err != nil {
 }
 path := brainconfig.Path(dir)
 // Read and check your settings first, so a bad file is left as it is; this
-// rejects unknown keys and newer versions. A missing file is an error
+// rejects newer versions and values of the wrong type, and ignores keys
+// settings has no field for. A missing file is an error
 // matching brainconfig.ErrNoConfig, which asks the user to run brainctl init.
 cfg, err := brainconfig.Load(path)
 if err != nil {

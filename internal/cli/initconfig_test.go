@@ -319,8 +319,6 @@ func TestWorkctlInitStopsOnBadConfig(t *testing.T) {
 			"invalid schema_version -1 for extension app.cerebrai.workctl"},
 		{"settings with newer schema version", "schema_version: 1\nextensions:\n  app.cerebrai.workctl: {schema_version: 2}\n",
 			"schema_version 2 for extension app.cerebrai.workctl, but this release reads only up to 1"},
-		{"settings with unknown key", "schema_version: 1\nextensions:\n  app.cerebrai.workctl: {schema_version: 1, color: blue}\n",
-			"invalid settings for extension app.cerebrai.workctl"},
 	} {
 		t.Run(tt.name, func(t *testing.T) {
 			installs := project(t)
@@ -644,6 +642,25 @@ func TestWorkctlInitFillsInStandardKeys(t *testing.T) {
 
 // A name and bin the user set are kept, whatever they are: say an absolute
 // path for a program not on PATH, or another name it is installed under.
+// Keys in workctl's settings it does not know, from a newer workctl or the
+// user, are ignored and kept.
+func TestWorkctlInitIgnoresUnknownSettings(t *testing.T) {
+	installs := project(t)
+	const content = "schema_version: 1\nextensions:\n  app.cerebrai.workctl:\n    schema_version: 1\n" +
+		"    color: blue # mine\n    future: {enabled: true}\n"
+	writeBrainConfig(t, content)
+	code, stderr := runProgram(workctl, "init")
+	if code != 0 || !strings.Contains(stderr, "Added name and bin to the existing settings") {
+		t.Fatalf("got %d, %q", code, stderr)
+	}
+	if got, want := brainConfig(t), content+"    name: workctl\n    bin: workctl\n"; got != want {
+		t.Errorf("config = %q, want %q", got, want)
+	}
+	if *installs != 1 {
+		t.Errorf("install ran %d times, want 1", *installs)
+	}
+}
+
 func TestWorkctlInitKeepsUsersNameAndBin(t *testing.T) {
 	for _, tt := range []struct{ name, bin string }{
 		{"workctl", "workctl"}, {"My Work", "/opt/tools/bin/workctl"}, {"Dev", "workctl-dev"},

@@ -134,8 +134,8 @@ func TestAddExtensionRejectsBadSettings(t *testing.T) {
 	}
 }
 
-// AddExtension checks only the version of existing settings: unknown keys are
-// the extension's to judge, with DecodeExtension.
+// AddExtension checks only the standard keys of existing settings, and keeps
+// the rest as it is.
 func TestAddExtensionLeavesOtherKeysToTheExtension(t *testing.T) {
 	const content = "schema_version: 1\nextensions:\n  com.example.tool: {schema_version: 1, color: blue}\n"
 	path := writeConfig(t, content)

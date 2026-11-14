@@ -105,8 +105,8 @@ func TestExtension(t *testing.T) {
 	}
 }
 
-// DecodeExtension accepts the standard keys in a type that embeds
-// ExtensionBase, checks them, and rejects them in a type that does not.
+// DecodeExtension reads the standard keys into a type that embeds
+// ExtensionBase and checks them, and ignores keys a type has no field for.
 func TestDecodeExtensionStandardKeys(t *testing.T) {
 	type withBase struct {
 		ExtensionBase `yaml:",inline"`
@@ -121,12 +121,20 @@ func TestDecodeExtensionStandardKeys(t *testing.T) {
 		s != (withBase{ExtensionBase{SchemaVersion: 2, Name: "Tool", Bin: "tool"}, "red"}) {
 		t.Errorf("DecodeExtension: %+v, %v, %v", s, ok, err)
 	}
+	// A type without ExtensionBase, or without a field for every key, reads
+	// what it has fields for and ignores the rest.
 	var without struct {
-		SchemaVersion int    `yaml:"schema_version"`
-		Color         string `yaml:"color"`
+		Color string `yaml:"color"`
 	}
-	if _, err := cfg.DecodeExtension("com.example.tool", 2, &without); err == nil || !strings.Contains(err.Error(), "name") {
-		t.Errorf("DecodeExtension without ExtensionBase: %v", err)
+	if ok, err := cfg.DecodeExtension("com.example.tool", 2, &without); err != nil || !ok || without.Color != "red" {
+		t.Errorf("DecodeExtension without ExtensionBase: %+v, %v, %v", without, ok, err)
+	}
+	// A value of the wrong type for its field is still an error.
+	var wrongType struct {
+		Color int `yaml:"color"`
+	}
+	if _, err := cfg.DecodeExtension("com.example.tool", 2, &wrongType); err == nil || !strings.Contains(err.Error(), "invalid settings for extension com.example.tool") {
+		t.Errorf("DecodeExtension into the wrong type: %v", err)
 	}
 	for _, bad := range []string{"{schema_version: 1, bin: bin/tool}", "{schema_version: 1, name: ''}"} {
 		cfg, err := Unmarshal([]byte(settings(bad)))
