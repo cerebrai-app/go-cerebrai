@@ -18,6 +18,9 @@ import (
 	"github.com/cerebrai-app/go-cerebrai/internal/python"
 )
 
+// brainconfigFile is the config file's path inside the brain home.
+var brainconfigFile = filepath.Join(brainconfig.DirName, brainconfig.FileName)
+
 // install is python.Install; tests replace it.
 var install = python.Install
 
@@ -47,16 +50,20 @@ type extensionSettings struct {
 func Main(prog Program, args []string, stdout, stderr io.Writer) int {
 	name := prog.Name
 	usage := func() {
+		extensions := ""
+		if prog.ExtensionID == "" {
+			extensions = "  extensions  list the extension executables brainctl can discover\n"
+		}
 		_, _ = fmt.Fprintf(stderr, `usage: %[1]s <command> [flags]
 
 commands:
-  version   print the %[1]s version
-  init      set up %[2]s in the brain home and download a
-            python-build-standalone distribution
-
+  version     print the %[1]s version
+  init        set up %[2]s in the brain home and download a
+              python-build-standalone distribution
+%[4]s
 The brain home is $%[3]s if set, otherwise the current directory.
-Run "%[1]s init -h" for the flags of init.
-`, name, filepath.Join(brainconfig.DirName, brainconfig.FileName), brainconfig.EnvVar)
+Run "%[1]s <command> -h" for more about a command.
+`, name, brainconfigFile, brainconfig.EnvVar, extensions)
 	}
 	if len(args) == 0 {
 		usage()
@@ -76,6 +83,11 @@ Run "%[1]s init -h" for the flags of init.
 		return 0
 	case "init":
 		return runInit(prog, args[1:], stderr)
+	case "extensions":
+		// brainctl's alone: its extensions have no extensions of their own.
+		if prog.ExtensionID == "" {
+			return runExtensions(name, args[1:], stdout, stderr)
+		}
 	case "help", "-h", "-help", "--help":
 		usage()
 		return 0

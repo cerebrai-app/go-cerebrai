@@ -69,7 +69,8 @@ Check the install with `brainctl version`.
 
 ## Usage
 
-`brainctl` and `workctl` have the same commands.
+`brainctl` and `workctl` have the same `version` and `init` commands; `extensions` is
+`brainctl`'s alone.
 
 ```sh
 brainctl version
@@ -77,6 +78,7 @@ brainctl init                              # Python 3.14, freethreaded+pgo+lto
 brainctl init --python-version 3           # newest Python 3.x
 brainctl init --python-version 3.13.9      # exact version
 brainctl init --variant pgo+lto            # exact build options, no fallback
+brainctl extensions ls                     # the extensions brainctl can discover (also l, list)
 ```
 
 ### `init`
@@ -166,6 +168,25 @@ whatever paths or links the archive holds.
 
 On Linux, `init` picks the glibc or musl build by checking which C library `/bin/sh` uses, since
 the binaries themselves are static.
+
+### `extensions`
+
+`brainctl extensions ls` (or `l`, or `list`) lists the entries in `extension_bins` in the brain
+home's config file, with where each one is found: on `PATH` for a bare name, or at its absolute
+path.
+
+```console
+$ brainctl extensions ls
+NAME                   PATH
+workctl                /usr/local/bin/workctl
+/opt/example/bin/tool  not found
+```
+
+An extension that is listed but not installed shows as `not found` (or `not executable`) rather
+than making the command fail: the config is the same file on every machine it is backed up or
+committed to, and not every machine has every extension. A missing or invalid config file is an
+error. The table goes to stdout; with no extensions listed, stdout is empty and a note goes to
+stderr.
 
 ## Writing an extension
 
