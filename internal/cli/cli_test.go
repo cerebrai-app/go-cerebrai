@@ -50,7 +50,7 @@ func TestUsageErrors(t *testing.T) {
 func stubInstall(t *testing.T, err error) *python.Options {
 	t.Helper()
 	t.Chdir(t.TempDir())
-	// The brain directory is the current directory unless a test sets this.
+	// The brain home is the current directory unless a test sets this.
 	t.Setenv(brainconfig.EnvVar, "")
 	var got python.Options
 	old := install

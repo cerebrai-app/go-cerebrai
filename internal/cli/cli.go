@@ -1,6 +1,6 @@
 // Package cli is the command line shared by brainctl and workctl. workctl is
 // an extension of brainctl: both use the same .brain/config.yaml in the brain
-// directory ($BRAIN_DIR, or the current directory), where workctl's init adds
+// directory ($BRAIN_HOME, or the current directory), where workctl's init adds
 // its settings under extensions.app.cerebrai.workctl. Each program describes
 // itself with a Program, so this package keeps no list of extensions.
 package cli
@@ -11,6 +11,7 @@ import (
 	"fmt"
 	"io"
 	"path/filepath"
+	"strings"
 
 	"github.com/cerebrai-app/go-cerebrai/brainconfig"
 	"github.com/cerebrai-app/go-cerebrai/internal/buildinfo"
@@ -50,10 +51,10 @@ func Main(prog Program, args []string, stdout, stderr io.Writer) int {
 
 commands:
   version   print the %[1]s version
-  init      set up %[2]s in the brain directory and download a
+  init      set up %[2]s in the brain home and download a
             python-build-standalone distribution
 
-The brain directory is $%[3]s if set, otherwise the current directory.
+The brain home is $%[3]s if set, otherwise the current directory.
 Run "%[1]s init -h" for the flags of init.
 `, name, filepath.Join(brainconfig.DirName, brainconfig.FileName), brainconfig.EnvVar)
 	}
@@ -115,7 +116,7 @@ that has the preferred build; a note is printed if a newer one exists only as an
 	}
 	// The config comes first: it is quick and needs no network, so a directory
 	// that cannot be written fails before the download.
-	dir, err := brainconfig.Dir()
+	dir, err := brainconfig.Home()
 	if err != nil {
 		_, _ = fmt.Fprintf(stderr, "error: %v\n", err)
 		return 1
@@ -135,16 +136,18 @@ that has the preferred build; a note is printed if a newer one exists only as an
 func initWrites(prog Program) string {
 	path := filepath.Join(brainconfig.DirName, brainconfig.FileName)
 	if prog.ExtensionID == "" {
-		return "Writes " + path + " in the brain directory ($" + brainconfig.EnvVar + ",\n" +
+		return "Writes " + path + " in the brain home ($" + brainconfig.EnvVar + ",\n" +
 			"or the current directory) if it is missing"
 	}
-	return "Adds settings for extension " + prog.ExtensionID + " to " + path + "\n" +
-		"in the brain directory ($" + brainconfig.EnvVar + ", or the current directory),\n" +
+	return "Adds settings for extension " + prog.ExtensionID + " and lists " + prog.Name + " in extension_bins\n" +
+		"in " + path + " " +
+		"in the brain home ($" + brainconfig.EnvVar + ", or the current directory),\n" +
 		"which brainctl init must have created"
 }
 
 // initConfig makes sure the config file at path exists and, for an extension
-// of brainctl, holds the extension's settings. Only brainctl creates the file:
+// of brainctl, holds the extension's settings and lists its executable, by
+// name, in extension_bins. Only brainctl creates the file:
 // an extension fails if brainctl init has not run yet.
 func initConfig(prog Program, path string, log io.Writer) error {
 	id := prog.ExtensionID
@@ -179,5 +182,36 @@ func initConfig(prog Program, path string, log io.Writer) error {
 	} else {
 		_, _ = fmt.Fprintf(log, "Using existing settings for extension %s in %s\n", id, path)
 	}
+	// List the program by name, not by where it is installed, so the file
+	// stays right on every machine it is backed up or committed to. An entry
+	// the user wrote as a path to it counts as listing it already.
+	cfg, err := brainconfig.Load(path)
+	if err != nil {
+		return err
+	}
+	for _, bin := range cfg.ExtensionBins() {
+		if binName(bin) == prog.Name {
+			return nil
+		}
+	}
+	listed, err := brainconfig.AddExtensionBin(path, prog.Name)
+	if err != nil {
+		return err
+	}
+	if listed {
+		_, _ = fmt.Fprintf(log, "Listed %s in extension_bins in %s\n", prog.Name, path)
+	}
 	return nil
+}
+
+// binName is the program name an extension_bins entry runs: its last path
+// element (after "/" or, as on Windows, "\") without a ".exe" suffix.
+func binName(bin string) string {
+	if i := strings.LastIndexAny(bin, `/\`); i >= 0 {
+		bin = bin[i+1:]
+	}
+	if len(bin) > 4 && strings.EqualFold(bin[len(bin)-4:], ".exe") {
+		bin = bin[:len(bin)-4]
+	}
+	return bin
 }

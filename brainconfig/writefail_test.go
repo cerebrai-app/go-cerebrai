@@ -44,9 +44,7 @@ func TestInitCannotCreateFile(t *testing.T) {
 func TestAddExtensionCannotWriteTemporaryFile(t *testing.T) {
 	dir := t.TempDir()
 	path := filepath.Join(dir, longName)
-	if err := os.WriteFile(path, []byte(brainOnly), 0o644); err != nil {
-		t.Skipf("file system does not take a %d byte name: %v", len(longName), err)
-	}
+	writeLong(t, path)
 	added, err := AddExtension(path, "app.cerebrai.workctl", 1)
 	if err == nil || added || !strings.Contains(err.Error(), "writing "+path) {
 		t.Errorf("AddExtension: %v, %v", added, err)
@@ -99,5 +97,14 @@ func TestWriteFileReplacesAtomically(t *testing.T) {
 	}
 	if names := dirEntries(t, filepath.Dir(path)); len(names) != 1 {
 		t.Errorf("left files behind: %q", names)
+	}
+}
+
+// writeLong writes a valid config file at path, whose name is longName,
+// skipping the test if the file system cannot take a name that long.
+func writeLong(t *testing.T, path string) {
+	t.Helper()
+	if err := os.WriteFile(path, []byte(brainOnly), 0o644); err != nil {
+		t.Skipf("file system does not take a %d byte name: %v", len(longName), err)
 	}
 }

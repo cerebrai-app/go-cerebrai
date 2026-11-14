@@ -81,17 +81,17 @@ brainctl init --variant pgo+lto            # exact build options, no fallback
 
 ### `init`
 
-First, `brainctl init` writes a config file to `.brain/config.yaml` in the brain directory,
-creating `.brain` if needed. The brain directory is `$BRAIN_DIR` if set, otherwise the current
+First, `brainctl init` writes a config file to `.brain/config.yaml` in the brain home,
+creating `.brain` if needed. The brain home is `$BRAIN_HOME` if set, otherwise the current
 directory:
 
 ```sh
 cd ~/notes && brainctl init               # writes ~/notes/.brain/config.yaml
-export BRAIN_DIR=~/notes                  # then, from anywhere:
+export BRAIN_HOME=~/notes                 # then, from anywhere:
 brainctl init && workctl init             # both use ~/notes/.brain/config.yaml
 ```
 
-The config lives next to the brain's data so it is backed up or committed with it. `$BRAIN_DIR`
+The config lives next to the brain's data so it is backed up or committed with it. `$BRAIN_HOME`
 must name an existing directory (a relative path is taken from the current directory): a typo is an
 error rather than a new, empty brain somewhere else.
 
@@ -106,15 +106,18 @@ checks that it is valid YAML with only known keys and a `schema_version` this re
 file from a newer release (a higher `schema_version`) is an error, so `init` stops before
 downloading anything.
 
-`workctl` is an extension of `brainctl` and shares its config file. `workctl init` adds an
-entry under `extensions`, keyed by its ID `app.cerebrai.workctl`. Run `brainctl init` first:
-`workctl init` never creates the file, and fails before downloading anything if it is missing.
+`workctl` is an extension of `brainctl` and shares its config file. `workctl init` adds its
+settings under `extensions`, keyed by its ID `app.cerebrai.workctl`, and lists itself in
+`extension_bins`. Run `brainctl init` first: `workctl init` never creates the file, and fails
+before downloading anything if it is missing.
 
 ```yaml
 schema_version: 1
 extensions:
   app.cerebrai.workctl:
     schema_version: 1
+extension_bins:
+  - workctl
 ```
 
 The `schema_version` under it is the format of `workctl`'s own settings, numbered independently of
@@ -126,6 +129,14 @@ dropped and indentation becomes two spaces.
 `brainctl` never looks inside `extensions`, beyond checking that it is a mapping, so it works with
 any extension, including ones it has never heard of, and a broken extension's settings can't stop
 it.
+
+`extension_bins` lists the extension executables `brainctl` can discover. Each entry is a bare
+name, looked up on `PATH`, or an absolute path for one that isn't on `PATH`. Extensions list
+themselves by name, so the file works on every machine it is backed up or committed to; an entry
+you write as a path to the same program (say `/opt/tools/bin/workctl`) counts as listing it, and
+`workctl init` won't add another. `brainctl` checks this key itself: it must be a list, entries
+can't repeat, and a relative path with a directory in it (`bin/workctl`) is an error, since it
+would depend on the current directory.
 
 Then it downloads a [python-build-standalone](https://github.com/astral-sh/python-build-standalone)
 distribution to `<data dir>/python-build-standalone/<version>+<build options>/` (for example
@@ -159,7 +170,8 @@ the binaries themselves are static.
 ## Writing an extension
 
 Any program can be an extension of `brainctl`, without changes to `brainctl`: it adds its own key
-under `extensions` in `.brain/config.yaml` in the brain directory. The rules:
+under `extensions` in `.brain/config.yaml` in the brain home, and lists its executable in
+`extension_bins`. The rules:
 
 - **ID.** The key is the extension's ID: a reverse domain name for a domain its author controls,
   followed by the extension's name, so two authors never pick the same key. `workctl`, from
@@ -170,10 +182,13 @@ under `extensions` in `.brain/config.yaml` in the brain directory. The rules:
 - **Shape.** The value is a mapping with a `schema_version`: a positive integer for the format of
   the extension's settings. The extension numbers its own versions, starting at 1, independently
   of the file's `schema_version` and of other extensions.
-- **Find the file the same way.** The brain directory is `$BRAIN_DIR` if set (an existing
+- **Find the file the same way.** The brain home is `$BRAIN_HOME` if set (an existing
   directory; a relative path is taken from the current directory), otherwise the current directory.
-- **Write only your own key.** Don't change the top-level keys or another extension's settings,
-  and keep content you don't understand. Never create the file: if it is
+- **List your executable.** Add it to `extension_bins` if it isn't there: by name if it is
+  installed on `PATH`, otherwise by absolute path. Don't add a second entry for a program already
+  listed, by name or by path.
+- **Write only your own entries.** Don't change other top-level keys, other extensions' settings
+  or their `extension_bins` entries, and keep content you don't understand. Never create the file: if it is
   missing, fail and ask the user to run `brainctl init`.
 - **Check the versions.** Refuse a file whose top-level `schema_version` is newer than you know
   (currently `1`), and settings whose `schema_version` is newer than your release reads, rather
@@ -187,6 +202,9 @@ extensions:
   com.example.tool:
     schema_version: 3
     color: blue
+extension_bins:
+  - workctl
+  - /opt/example/bin/tool
 ```
 
 Extensions written in Go can import [`brainconfig`](brainconfig), which follows these rules:
@@ -199,7 +217,7 @@ type settings struct {
 	Color         string `yaml:"color"`
 }
 
-dir, err := brainconfig.Dir() // $BRAIN_DIR, or the current directory
+dir, err := brainconfig.Home() // $BRAIN_HOME, or the current directory
 if err != nil {
 	return err
 }
@@ -207,6 +225,10 @@ path := brainconfig.Path(dir)
 // Add your key if it is missing. A missing file is an error matching
 // brainconfig.ErrNoConfig, which asks the user to run brainctl init.
 if _, err := brainconfig.AddExtension(path, "com.example.tool", 3); err != nil {
+	return err
+}
+// List your executable for brainctl to discover.
+if _, err := brainconfig.AddExtensionBin(path, "tool"); err != nil {
 	return err
 }
 // Read your settings; this rejects unknown keys and newer versions.

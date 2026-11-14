@@ -1,6 +1,6 @@
 // Package brainconfig reads and writes the brain config file,
-// .brain/config.yaml in the brain directory: $BRAIN_DIR if set, otherwise the
-// current directory (see Dir). Keeping it there, next to the brain's data,
+// .brain/config.yaml in the brain home: $BRAIN_HOME if set, otherwise the
+// current directory (see Home). Keeping it there, next to the brain's data,
 // means it is backed up or committed with the data. brainctl creates it, and
 // extensions (workctl, and programs from anyone else) add their own settings
 // to it, without brainctl having to know about them:
@@ -12,6 +12,14 @@
 //	  com.example.tool:
 //	    schema_version: 3
 //	    anything: the extension likes
+//	extension_bins:
+//	  - workctl
+//	  - /opt/example/bin/tool
+//
+// extension_bins lists the extension executables brainctl can discover: each
+// is a bare name, looked up on PATH, or an absolute path (see CheckBin). A
+// bare name suits a file that is committed or backed up, since it does not
+// tie the file to one machine's layout.
 //
 // The rules every extension follows, whether it uses this package or edits
 // the YAML itself:
@@ -22,13 +30,16 @@
 //     never pick the same key. See CheckID for the exact form.
 //   - Its settings are a mapping holding schema_version: a positive integer
 //     that the extension numbers on its own, independently of the file's.
-//   - It changes nothing outside its own key: not the top-level keys,
-//     not other extensions, and it keeps unknown content as it is.
+//   - It lists its executable in extension_bins, with AddExtensionBin.
+//   - It changes nothing else: not the other top-level keys, not other
+//     extensions or their entries in extension_bins, and it keeps unknown
+//     content as it is.
 //   - It refuses settings with a schema_version newer than it reads, instead
 //     of misreading them.
 //
 // brainctl in turn checks only the top level: a schema_version it reads, no
-// top-level keys it does not know, and extensions being a mapping. It never
+// top-level keys it does not know, extensions being a mapping, and
+// extension_bins being a list of distinct valid entries. It never
 // looks inside an extension's settings, so a broken or newer extension can
 // never stop brainctl.
 //
@@ -46,10 +57,12 @@ import (
 	"io/fs"
 	"maps"
 	"os"
+	"path"
 	"path/filepath"
 	"regexp"
 	"slices"
 	"strconv"
+	"strings"
 
 	"go.yaml.in/yaml/v3"
 )
@@ -59,9 +72,9 @@ const (
 	// newest one it reads. Raise it when a change would make older releases
 	// misread the file.
 	SchemaVersion = 1
-	// EnvVar names the environment variable holding the brain directory.
-	EnvVar = "BRAIN_DIR"
-	// DirName is the config directory inside the brain directory.
+	// EnvVar names the environment variable holding the brain home.
+	EnvVar = "BRAIN_HOME"
+	// DirName is the config directory inside the brain home.
 	DirName = ".brain"
 	// FileName is the config file's name inside DirName.
 	FileName = "config.yaml"
@@ -75,12 +88,40 @@ type Config struct {
 	// package does not look inside them when it reads the file: an extension
 	// reads its own with DecodeExtension.
 	extensions map[string]yaml.Node
+	// bins is extension_bins, in the file's order.
+	bins []string
 }
 
 // file is the YAML shape of Config.
 type file struct {
 	SchemaVersion int                  `yaml:"schema_version"`
 	Extensions    map[string]yaml.Node `yaml:"extensions,omitempty"`
+	ExtensionBins []string             `yaml:"extension_bins,omitempty"`
+}
+
+// ExtensionBins are the extension executables listed in extension_bins, in
+// the file's order: bare names to look up on PATH, or absolute paths.
+func (c Config) ExtensionBins() []string {
+	return slices.Clone(c.bins)
+}
+
+// CheckBin returns an error if bin cannot be listed in extension_bins: it
+// must be a bare executable name, looked up on PATH, or an absolute path. A
+// relative path with a directory in it would depend on the current directory.
+// Absolute means absolute on this platform, or rooted at "/": the file may be
+// shared between machines, so a Unix path is accepted on Windows too.
+func CheckBin(bin string) error {
+	switch {
+	case strings.TrimSpace(bin) == "":
+		return errors.New("invalid extension_bins entry: empty")
+	case bin != strings.TrimSpace(bin):
+		return fmt.Errorf("invalid extension_bins entry %q: leading or trailing space", bin)
+	case filepath.IsAbs(bin) || path.IsAbs(bin):
+		return nil
+	case bin == "." || bin == ".." || strings.ContainsAny(bin, `/\`):
+		return fmt.Errorf("invalid extension_bins entry %q: use a bare executable name or an absolute path", bin)
+	}
+	return nil
 }
 
 // HasExtension reports whether the extension with ID id has settings.
@@ -174,11 +215,11 @@ func checkSchemaVersion(where string, got, newest int) error {
 	return nil
 }
 
-// Dir is the brain directory, which holds DirName: $BRAIN_DIR if set and not
-// empty, otherwise the current directory. $BRAIN_DIR must name an existing
+// Home is the brain home, which holds DirName: $BRAIN_HOME if set and not
+// empty, otherwise the current directory. $BRAIN_HOME must name an existing
 // directory, so a typo fails instead of starting a new brain elsewhere; a
 // relative path is taken from the current directory. The result is absolute.
-func Dir() (string, error) {
+func Home() (string, error) {
 	dir := os.Getenv(EnvVar)
 	if dir == "" {
 		return os.Getwd()
@@ -197,7 +238,7 @@ func Dir() (string, error) {
 	return abs, nil
 }
 
-// Path is the config file in the brain directory dir, normally from Dir.
+// Path is the config file in the brain home dir, normally from Home.
 func Path(dir string) string {
 	return filepath.Join(dir, DirName, FileName)
 }
@@ -262,30 +303,72 @@ func AddExtension(path, id string, schemaVersion int) (added bool, err error) {
 		return false, nil
 	}
 
+	err = editConfig(path, data, func(root *yaml.Node) {
+		exts := mappingValue(root, "extensions")
+		if exts == nil {
+			exts = &yaml.Node{}
+			root.Content = append(root.Content, scalar("extensions"), exts)
+		}
+		makeBlock(exts, yaml.MappingNode, "!!map")
+		exts.Content = append(exts.Content, scalar(id), &yaml.Node{Kind: yaml.MappingNode, Tag: "!!map",
+			Content: []*yaml.Node{scalar("schema_version"),
+				{Kind: yaml.ScalarNode, Tag: "!!int", Value: strconv.Itoa(schemaVersion)}}})
+	})
+	if err != nil {
+		return false, err
+	}
+	return true, nil
+}
+
+// AddExtensionBin lists bin, an extension's executable, in extension_bins in
+// the config file at path, which must exist and be valid (a missing file is
+// an ErrNoConfig error). bin is a bare name, looked up on PATH, or an absolute
+// path; see CheckBin. added is false if bin is already listed. Other content
+// and comments are kept; blank lines are not.
+func AddExtensionBin(path, bin string) (added bool, err error) {
+	if err := CheckBin(bin); err != nil {
+		return false, err
+	}
+	data, err := readConfig(path)
+	if err != nil {
+		return false, err
+	}
+	cfg, err := Unmarshal(data)
+	if err != nil {
+		return false, fmt.Errorf("%s: %w", path, err)
+	}
+	if slices.Contains(cfg.bins, bin) {
+		return false, nil
+	}
+	err = editConfig(path, data, func(root *yaml.Node) {
+		bins := mappingValue(root, "extension_bins")
+		if bins == nil {
+			bins = &yaml.Node{}
+			root.Content = append(root.Content, scalar("extension_bins"), bins)
+		}
+		makeBlock(bins, yaml.SequenceNode, "!!seq")
+		bins.Content = append(bins.Content, scalar(bin))
+	})
+	if err != nil {
+		return false, err
+	}
+	return true, nil
+}
+
+// editConfig applies edit to the top-level mapping of data, the content of
+// the config file at path, which Unmarshal has accepted, and writes the result
+// to path with writeFile.
+func editConfig(path string, data []byte, edit func(root *yaml.Node)) error {
 	var doc yaml.Node
 	if err := yaml.Unmarshal(data, &doc); err != nil {
-		return false, fmt.Errorf("%s: invalid config file: %w", path, err)
+		return fmt.Errorf("%s: invalid config file: %w", path, err)
 	}
 	// Unmarshal accepted the file, so it is one document holding a mapping.
-	root := doc.Content[0]
-	exts := mappingValue(root, "extensions")
-	if exts == nil {
-		exts = &yaml.Node{Kind: yaml.MappingNode, Tag: "!!map"}
-		root.Content = append(root.Content, scalar("extensions"), exts)
-	} else if exts.Kind != yaml.MappingNode {
-		// "extensions:" with no value, or "extensions: null".
-		*exts = yaml.Node{Kind: yaml.MappingNode, Tag: "!!map",
-			HeadComment: exts.HeadComment, LineComment: exts.LineComment, FootComment: exts.FootComment}
-	}
-	exts.Style = 0 // block style, even if it was written as {}
-	exts.Content = append(exts.Content, scalar(id), &yaml.Node{Kind: yaml.MappingNode, Tag: "!!map",
-		Content: []*yaml.Node{scalar("schema_version"),
-			{Kind: yaml.ScalarNode, Tag: "!!int", Value: strconv.Itoa(schemaVersion)}}})
-
+	edit(doc.Content[0])
 	var buf bytes.Buffer
 	enc := yaml.NewEncoder(&buf)
 	enc.SetIndent(2)
-	err = enc.Encode(&doc)
+	err := enc.Encode(&doc)
 	if closeErr := enc.Close(); err == nil {
 		err = closeErr
 	}
@@ -293,9 +376,20 @@ func AddExtension(path, id string, schemaVersion int) (added bool, err error) {
 		err = writeFile(path, buf.Bytes())
 	}
 	if err != nil {
-		return false, fmt.Errorf("writing %s: %w", path, err)
+		return fmt.Errorf("writing %s: %w", path, err)
 	}
-	return true, nil
+	return nil
+}
+
+// makeBlock makes n an empty node of kind and tag if it is anything else,
+// such as a key with no value ("extensions:") or null, keeping its comments,
+// and sets block style, even if it was written in flow style ({} or []).
+func makeBlock(n *yaml.Node, kind yaml.Kind, tag string) {
+	if n.Kind != kind {
+		*n = yaml.Node{Kind: kind, Tag: tag,
+			HeadComment: n.HeadComment, LineComment: n.LineComment, FootComment: n.FootComment}
+	}
+	n.Style = 0
 }
 
 // mappingValue is the value of key in the mapping node m, or nil.
@@ -370,8 +464,9 @@ func Load(path string) (Config, error) {
 
 // Unmarshal decodes the config file's YAML and checks it: it must be one
 // mapping with a schema_version this release reads, no top-level keys it does
-// not know, and extensions, if there, a mapping. What each extension holds is
-// not checked: see DecodeExtension.
+// not know, extensions, if there, a mapping, and extension_bins, if there, a
+// list of distinct entries that CheckBin accepts. What each extension holds
+// is not checked: see DecodeExtension.
 func Unmarshal(data []byte) (Config, error) {
 	var f file
 	dec := yaml.NewDecoder(bytes.NewReader(data))
@@ -388,5 +483,13 @@ func Unmarshal(data []byte) (Config, error) {
 	if err := checkSchemaVersion("", f.SchemaVersion, SchemaVersion); err != nil {
 		return Config{}, err
 	}
-	return Config{SchemaVersion: f.SchemaVersion, extensions: f.Extensions}, nil
+	for i, bin := range f.ExtensionBins {
+		if err := CheckBin(bin); err != nil {
+			return Config{}, err
+		}
+		if slices.Contains(f.ExtensionBins[:i], bin) {
+			return Config{}, fmt.Errorf("invalid config file: %q is listed twice in extension_bins", bin)
+		}
+	}
+	return Config{SchemaVersion: f.SchemaVersion, extensions: f.Extensions, bins: f.ExtensionBins}, nil
 }

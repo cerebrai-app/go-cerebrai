@@ -7,7 +7,7 @@ import (
 	"testing"
 )
 
-func TestDirDefaultsToCurrentDirectory(t *testing.T) {
+func TestHomeDefaultsToCurrentDirectory(t *testing.T) {
 	cwd := t.TempDir()
 	t.Chdir(cwd)
 	for _, value := range []string{"", "unset"} {
@@ -20,45 +20,45 @@ func TestDirDefaultsToCurrentDirectory(t *testing.T) {
 		} else {
 			t.Setenv(EnvVar, value)
 		}
-		got, err := Dir()
+		got, err := Home()
 		if err != nil {
 			t.Fatalf("%s=%q: %v", EnvVar, value, err)
 		}
 		if same, _ := sameDir(got, cwd); !same {
-			t.Errorf("%s=%q: Dir = %q, want the current directory %q", EnvVar, value, got, cwd)
+			t.Errorf("%s=%q: Home = %q, want the current directory %q", EnvVar, value, got, cwd)
 		}
 	}
 }
 
-func TestDirFromEnvironment(t *testing.T) {
+func TestHomeFromEnvironment(t *testing.T) {
 	brain := t.TempDir()
 	t.Setenv(EnvVar, brain)
 	t.Chdir(t.TempDir())
-	if got, err := Dir(); err != nil || got != brain {
-		t.Errorf("Dir = %q, %v; want %q", got, err, brain)
+	if got, err := Home(); err != nil || got != brain {
+		t.Errorf("Home = %q, %v; want %q", got, err, brain)
 	}
 }
 
-func TestDirRelative(t *testing.T) {
+func TestHomeRelative(t *testing.T) {
 	cwd := t.TempDir()
 	t.Chdir(cwd)
 	if err := os.Mkdir("notes", 0o755); err != nil {
 		t.Fatal(err)
 	}
 	t.Setenv(EnvVar, "notes")
-	got, err := Dir()
+	got, err := Home()
 	if err != nil {
 		t.Fatal(err)
 	}
 	if !filepath.IsAbs(got) {
-		t.Errorf("Dir = %q, not absolute", got)
+		t.Errorf("Home = %q, not absolute", got)
 	}
 	if same, _ := sameDir(got, filepath.Join(cwd, "notes")); !same {
-		t.Errorf("Dir = %q, want %q", got, filepath.Join(cwd, "notes"))
+		t.Errorf("Home = %q, want %q", got, filepath.Join(cwd, "notes"))
 	}
 }
 
-func TestDirMustExist(t *testing.T) {
+func TestHomeMustExist(t *testing.T) {
 	file := filepath.Join(t.TempDir(), "file")
 	if err := os.WriteFile(file, nil, 0o644); err != nil {
 		t.Fatal(err)
@@ -69,19 +69,19 @@ func TestDirMustExist(t *testing.T) {
 		file:    EnvVar + "=" + file + ": not a directory",
 	} {
 		t.Setenv(EnvVar, dir)
-		if got, err := Dir(); err == nil || !strings.Contains(err.Error(), wantErr) {
-			t.Errorf("%s=%s: Dir = %q, %v; want an error containing %q", EnvVar, dir, got, err, wantErr)
+		if got, err := Home(); err == nil || !strings.Contains(err.Error(), wantErr) {
+			t.Errorf("%s=%s: Home = %q, %v; want an error containing %q", EnvVar, dir, got, err, wantErr)
 		}
 	}
 	if _, err := os.Stat(missing); err == nil {
-		t.Error("Dir made the missing directory")
+		t.Error("Home made the missing directory")
 	}
 }
 
-func TestDirAndPath(t *testing.T) {
+func TestHomeAndPath(t *testing.T) {
 	brain := t.TempDir()
 	t.Setenv(EnvVar, brain)
-	dir, err := Dir()
+	dir, err := Home()
 	if err != nil {
 		t.Fatal(err)
 	}

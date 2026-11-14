@@ -21,7 +21,8 @@ var configPath = filepath.Join(".brain", "config.yaml")
 
 const (
 	brainOnly   = "schema_version: 1\n"
-	withWorkctl = "schema_version: 1\nextensions:\n  app.cerebrai.workctl:\n    schema_version: 1\n"
+	withWorkctl = "schema_version: 1\nextensions:\n  app.cerebrai.workctl:\n    schema_version: 1\n" +
+		"extension_bins:\n  - workctl\n"
 )
 
 // project runs the test in an empty current directory with install stubbed
@@ -32,10 +33,10 @@ func project(t *testing.T) *int {
 	calls := 0
 	install = func(python.Options) (string, error) {
 		// The config file is always settled before the download starts, in
-		// the brain directory the program used.
-		dir, err := brainconfig.Dir()
+		// the brain home the program used.
+		dir, err := brainconfig.Home()
 		if err != nil {
-			t.Errorf("install ran without a brain directory: %v", err)
+			t.Errorf("install ran without a brain home: %v", err)
 		} else if _, err := os.Stat(brainconfig.Path(dir)); err != nil {
 			t.Errorf("install ran without a config file: %v", err)
 		}
@@ -126,6 +127,9 @@ func TestBrainctlInitStopsOnBadConfig(t *testing.T) {
 		{"newer schema version", "schema_version: 2\n", "upgrade to a newer release"},
 		{"unknown top-level key", "schema_version: 1\ncolor: blue\n", "invalid config file"},
 		{"extensions not a mapping", "schema_version: 1\nextensions: [a]\n", "invalid config file"},
+		{"extension_bins not a list", "schema_version: 1\nextension_bins: workctl\n", "invalid config file"},
+		{"extension_bins duplicate", "schema_version: 1\nextension_bins: [workctl, workctl]\n", "listed twice"},
+		{"extension_bins relative path", "schema_version: 1\nextension_bins: [bin/workctl]\n", "invalid extension_bins entry"},
 	} {
 		t.Run(tt.name, func(t *testing.T) {
 			installs := project(t)
@@ -253,7 +257,7 @@ func TestWorkctlInitWithoutConfigFails(t *testing.T) {
 			}
 		})
 	}
-	// No .brain directory is left behind either.
+	// No .brain home is left behind either.
 	project(t)
 	runProgram(workctl, "init")
 	if _, err := os.Stat(".brain"); err == nil {
@@ -270,7 +274,8 @@ func TestWorkctlInitKeepsCommentsAndOtherContent(t *testing.T) {
 	}
 	const want = "# my brain\nschema_version: 1 # format\nextensions:\n" +
 		"  com.example.tool:\n    schema_version: 3 # theirs\n    color: blue\n" +
-		"  app.cerebrai.workctl:\n    schema_version: 1\n"
+		"  app.cerebrai.workctl:\n    schema_version: 1\n" +
+		"extension_bins:\n  - workctl\n"
 	if got := brainConfig(t); got != want {
 		t.Errorf("config = %q, want %q", got, want)
 	}
@@ -302,6 +307,7 @@ func TestWorkctlInitStopsOnBadConfig(t *testing.T) {
 		{"not YAML", "schema_version: [\n", "invalid config file"},
 		{"newer file schema version", "schema_version: 2\n", "upgrade to a newer release"},
 		{"unknown top-level key", "schema_version: 1\ncolor: blue\n", "invalid config file"},
+		{"extension_bins duplicate", "schema_version: 1\nextension_bins: [a, a]\n", "listed twice"},
 		// workctl's own settings, which only workctl checks.
 		{"settings not a mapping", "schema_version: 1\nextensions:\n  app.cerebrai.workctl: 1\n",
 			"settings for extension app.cerebrai.workctl must be a mapping"},
@@ -365,6 +371,10 @@ func TestThirdPartyExtensionAlongsideWorkctl(t *testing.T) {
 				want += "  " + prog.ExtensionID + ":\n    schema_version: " +
 					map[string]string{"app.cerebrai.workctl": "1", "com.example.tool": "3"}[prog.ExtensionID] + "\n"
 			}
+			want += "extension_bins:\n"
+			for _, prog := range order {
+				want += "  - " + prog.Name + "\n"
+			}
 			if got := brainConfig(t); got != want {
 				t.Errorf("config = %q, want %q", got, want)
 			}
@@ -391,7 +401,8 @@ func TestWorkctlInitIgnoresOtherExtensions(t *testing.T) {
 		t.Fatalf("got %d, %q", code, stderr)
 	}
 	const want = "schema_version: 1\nextensions:\n  com.example.tool: {schema_version: 99, x: [1]}\n  junk: 1\n" +
-		"  app.cerebrai.workctl:\n    schema_version: 1\n"
+		"  app.cerebrai.workctl:\n    schema_version: 1\n" +
+		"extension_bins:\n  - workctl\n"
 	if got := brainConfig(t); got != want {
 		t.Errorf("config = %q, want %q", got, want)
 	}
@@ -474,8 +485,8 @@ func mustGetwd(t *testing.T) string {
 	return dir
 }
 
-// brainAt makes a brain directory, points BRAIN_DIR at it, moves the test to
-// a different, empty current directory, and returns the brain directory.
+// brainAt makes a brain home, points BRAIN_HOME at it, moves the test to
+// a different, empty current directory, and returns the brain home.
 func brainAt(t *testing.T) string {
 	t.Helper()
 	brain := t.TempDir()
@@ -496,7 +507,7 @@ func cwdIsEmpty(t *testing.T) {
 	}
 }
 
-func TestBrainDirFromEnvironment(t *testing.T) {
+func TestBrainHomeFromEnvironment(t *testing.T) {
 	installs := project(t)
 	brain := brainAt(t)
 	code, stderr := runProgram(brainctl, "init")
@@ -517,7 +528,7 @@ func TestBrainDirFromEnvironment(t *testing.T) {
 	}
 }
 
-func TestBrainDirRelative(t *testing.T) {
+func TestBrainHomeRelative(t *testing.T) {
 	project(t)
 	if err := os.Mkdir("notes", 0o755); err != nil {
 		t.Fatal(err)
@@ -534,9 +545,9 @@ func TestBrainDirRelative(t *testing.T) {
 	}
 }
 
-// Without BRAIN_DIR, a brain elsewhere is not found: workctl looks in the
+// Without BRAIN_HOME, a brain elsewhere is not found: workctl looks in the
 // current directory and fails.
-func TestBrainDirUnsetUsesCurrentDirectory(t *testing.T) {
+func TestBrainHomeUnsetUsesCurrentDirectory(t *testing.T) {
 	project(t)
 	brain := t.TempDir()
 	t.Chdir(brain)
@@ -553,13 +564,13 @@ func TestBrainDirUnsetUsesCurrentDirectory(t *testing.T) {
 	}
 }
 
-func TestBadBrainDir(t *testing.T) {
+func TestBadBrainHome(t *testing.T) {
 	for _, tt := range []struct {
 		name    string
 		dir     func(t *testing.T) string
 		wantErr string
 	}{
-		{"missing", func(t *testing.T) string { return filepath.Join(t.TempDir(), "typo") }, "BRAIN_DIR="},
+		{"missing", func(t *testing.T) string { return filepath.Join(t.TempDir(), "typo") }, "BRAIN_HOME="},
 		{"a file", func(t *testing.T) string {
 			f := filepath.Join(t.TempDir(), "file")
 			if err := os.WriteFile(f, nil, 0o644); err != nil {
@@ -592,9 +603,91 @@ func TestBadBrainDir(t *testing.T) {
 func TestUsageMentionsBrainDir(t *testing.T) {
 	for _, prog := range []Program{brainctl, workctl} {
 		for _, args := range [][]string{{"help"}, {"init", "-h"}} {
-			if _, stderr := runProgram(prog, args...); !strings.Contains(stderr, "$BRAIN_DIR") {
-				t.Errorf("%s %q does not mention $BRAIN_DIR:\n%s", prog.Name, args, stderr)
+			if _, stderr := runProgram(prog, args...); !strings.Contains(stderr, "$BRAIN_HOME") {
+				t.Errorf("%s %q does not mention $BRAIN_HOME:\n%s", prog.Name, args, stderr)
 			}
 		}
+	}
+}
+
+func TestWorkctlInitListsItself(t *testing.T) {
+	project(t)
+	writeBrainConfig(t, brainOnly)
+	code, stderr := runProgram(workctl, "init")
+	if code != 0 || !strings.Contains(stderr, "Listed workctl in extension_bins in ") {
+		t.Fatalf("got %d, %q", code, stderr)
+	}
+	if got := brainConfig(t); got != withWorkctl {
+		t.Errorf("config = %q, want %q", got, withWorkctl)
+	}
+	if code, stderr := runProgram(workctl, "init"); code != 0 || strings.Contains(stderr, "Listed ") {
+		t.Errorf("second run: got %d, %q", code, stderr)
+	}
+}
+
+// Settings added before extension_bins existed, or a user who removed the
+// entry: init lists the program again without touching its settings.
+func TestWorkctlInitListsItselfWithExistingSettings(t *testing.T) {
+	project(t)
+	const settingsOnly = "schema_version: 1\nextensions:\n  app.cerebrai.workctl:\n    schema_version: 1 # mine\n"
+	writeBrainConfig(t, settingsOnly)
+	code, stderr := runProgram(workctl, "init")
+	if code != 0 || !strings.Contains(stderr, "Using existing settings") || !strings.Contains(stderr, "Listed workctl") {
+		t.Fatalf("got %d, %q", code, stderr)
+	}
+	if got, want := brainConfig(t), settingsOnly+"extension_bins:\n  - workctl\n"; got != want {
+		t.Errorf("config = %q, want %q", got, want)
+	}
+}
+
+// An entry the user wrote as a path to the program already lists it.
+func TestWorkctlInitKeepsUserBinEntry(t *testing.T) {
+	for _, entry := range []string{"workctl", "/opt/tools/bin/workctl", "/opt/tools/bin/workctl.exe", "/opt/tools/bin/WORKCTL.EXE"} {
+		t.Run(entry, func(t *testing.T) {
+			project(t)
+			content := withWorkctl[:strings.Index(withWorkctl, "extension_bins:")] +
+				"extension_bins:\n  - " + entry + "\n"
+			writeBrainConfig(t, content)
+			code, stderr := runProgram(workctl, "init")
+			if code != 0 {
+				t.Fatalf("got %d, %q", code, stderr)
+			}
+			listed := strings.Contains(stderr, "Listed ")
+			// Only the .exe suffix ignores case: WORKCTL names another program.
+			if wantListed := entry == "/opt/tools/bin/WORKCTL.EXE"; listed != wantListed {
+				t.Errorf("listed = %v, want %v: %q", listed, wantListed, stderr)
+			}
+			if !listed && brainConfig(t) != content {
+				t.Errorf("config changed to %q", brainConfig(t))
+			}
+		})
+	}
+}
+
+func TestBinName(t *testing.T) {
+	for bin, want := range map[string]string{
+		"workctl":              "workctl",
+		"workctl.exe":          "workctl",
+		"workctl.EXE":          "workctl",
+		"/opt/bin/workctl":     "workctl",
+		`C:\Tools\workctl.exe`: "workctl",
+		"/opt/bin/workctl.sh":  "workctl.sh",
+		".exe":                 ".exe",
+		"/opt/bin/":            "",
+	} {
+		if got := binName(bin); got != want {
+			t.Errorf("binName(%q) = %q, want %q", bin, got, want)
+		}
+	}
+}
+
+// brainctl lists nothing in extension_bins itself.
+func TestBrainctlInitListsNoBins(t *testing.T) {
+	project(t)
+	if code, stderr := runProgram(brainctl, "init"); code != 0 || strings.Contains(stderr, "Listed") {
+		t.Fatalf("got %d, %q", code, stderr)
+	}
+	if got := brainConfig(t); got != brainOnly {
+		t.Errorf("config = %q", got)
 	}
 }
