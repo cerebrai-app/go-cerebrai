@@ -2,14 +2,14 @@ name: Release
 
 # Pushing a tag like v0.1.0 builds brainctl and workctl for each platform with
 # GoReleaser (.goreleaser.yaml) and publishes them together in one GitHub
-# Release (see the shared go-release.yml). Pull requests that change this file
-# or .goreleaser.yaml build a snapshot and publish nothing, so a change is
-# checked before a release.
+# Release (see the shared go-release.yml). Every pull request builds a snapshot
+# and checks the tap app (its installation on homebrew-tap and scoop-bucket,
+# and the RELEASE_APP_* secrets), and publishes nothing, so a broken release
+# shows up before a tag.
 on:
   push:
     tags: ["v*"]
   pull_request:
-    paths: [".github/workflows/release.yml", ".goreleaser.yaml"]
 
 permissions:
   contents: read
@@ -22,7 +22,7 @@ concurrency:
 
 jobs:
   release:
-    uses: cerebrai-app/actions/.github/workflows/go-release.yml@8f644ffd0ee167e2441bc2838f05b3884894657c # v3.0.0
+    uses: cerebrai-app/actions/.github/workflows/go-release.yml@1ea2d2b8724172821b75f34571c7396fa1144a28 # v3.1.0
     permissions:
       contents: write # create the release
       id-token: write # sign the build attestations
