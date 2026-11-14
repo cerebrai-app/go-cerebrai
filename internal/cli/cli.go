@@ -1,6 +1,6 @@
 // Package cli is the command line shared by brainctl and workctl. workctl is
 // an extension of brainctl: both use the same .brain/brainconfig.yaml, where
-// workctl's init adds extensions.workctl. Each program describes itself with
+// workctl's init adds its settings under extensions.app.cerebrai.workctl. Each program describes itself with
 // a Program, so this package keeps no list of extensions.
 package cli
 
@@ -22,12 +22,14 @@ var install = python.Install
 
 // Program describes the program Main runs.
 type Program struct {
-	// Name is the program's name: brainconfig.Base for brainctl itself,
-	// otherwise the extension's name, which is also its key under extensions
-	// in the config file.
+	// Name is the program's name, as used in messages.
 	Name string
+	// ExtensionID is, for an extension of brainctl, its key under extensions
+	// in the config file: a reverse domain name followed by its name, such as
+	// app.cerebrai.workctl (see brainconfig.CheckID). Empty for brainctl.
+	ExtensionID string
 	// ExtensionSchemaVersion is, for an extension, the newest format of its
-	// settings in the config file (extensions.<Name>.schema_version) that it
+	// settings in the config file (the schema_version under its ID) that it
 	// writes and reads. Raise it when a change would make older releases misread
 	// the settings. Unused for brainctl.
 	ExtensionSchemaVersion int
@@ -96,7 +98,7 @@ that has the preferred build; a note is printed if a newer one exists only as an
 		_, _ = fmt.Fprintf(stderr, "usage: %s init [flags]\n\n"+
 			"%s, then downloads a python-build-standalone\n"+
 			"distribution into the data directory.\n\nflags:\n",
-			name, initWrites(name))
+			name, initWrites(prog))
 		fs.PrintDefaults()
 	}
 	if err := fs.Parse(args); err != nil {
@@ -128,22 +130,21 @@ that has the preferred build; a note is printed if a newer one exists only as an
 	return 0
 }
 
-// initWrites says what init does to the config file for the program called
-// name, for its usage.
-func initWrites(name string) string {
+// initWrites says what init does to the config file for prog, for its usage.
+func initWrites(prog Program) string {
 	path := filepath.Join(brainconfig.DirName, brainconfig.FileName)
-	if name == brainconfig.Base {
+	if prog.ExtensionID == "" {
 		return "Writes " + path + " in the current directory if it is missing"
 	}
-	return "Adds extensions." + name + " to " + path + " in the current directory\n" +
-		"(creating the file if it is missing)"
+	return "Adds settings for extension " + prog.ExtensionID + " to " + path + "\n" +
+		"in the current directory (creating the file if it is missing)"
 }
 
 // initConfig makes sure the config file at path exists and, for an extension
 // of brainctl, holds the extension's key. An extension creates the file too if
 // brainctl's init has not run yet.
 func initConfig(prog Program, path string, log io.Writer) error {
-	name := prog.Name
+	id := prog.ExtensionID
 	created, err := brainconfig.Init(path)
 	if err != nil {
 		return err
@@ -151,13 +152,13 @@ func initConfig(prog Program, path string, log io.Writer) error {
 	if created {
 		_, _ = fmt.Fprintf(log, "Wrote %s\n", path)
 	}
-	if name == brainconfig.Base {
+	if id == "" {
 		if !created {
 			_, _ = fmt.Fprintf(log, "Using existing %s\n", path)
 		}
 		return nil
 	}
-	added, err := brainconfig.AddExtension(path, name, prog.ExtensionSchemaVersion)
+	added, err := brainconfig.AddExtension(path, id, prog.ExtensionSchemaVersion)
 	if err != nil {
 		return err
 	}
@@ -167,14 +168,14 @@ func initConfig(prog Program, path string, log io.Writer) error {
 		if err != nil {
 			return err
 		}
-		if _, err := cfg.DecodeExtension(name, prog.ExtensionSchemaVersion, new(extensionSettings)); err != nil {
+		if _, err := cfg.DecodeExtension(id, prog.ExtensionSchemaVersion, new(extensionSettings)); err != nil {
 			return fmt.Errorf("%s: %w", path, err)
 		}
 	}
 	if added {
-		_, _ = fmt.Fprintf(log, "Added extensions.%s to %s\n", name, path)
+		_, _ = fmt.Fprintf(log, "Added settings for extension %s to %s\n", id, path)
 	} else {
-		_, _ = fmt.Fprintf(log, "Using existing extensions.%s in %s\n", name, path)
+		_, _ = fmt.Fprintf(log, "Using existing settings for extension %s in %s\n", id, path)
 	}
 	return nil
 }

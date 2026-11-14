@@ -94,17 +94,18 @@ file from a newer release (a higher `schema_version`) is an error, so `init` sto
 downloading anything.
 
 `workctl` is an extension of `brainctl` and shares its config file. `workctl init` adds an
-`extensions.workctl` key, creating the file first if `brainctl init` hasn't run:
+entry under `extensions`, keyed by its ID `app.cerebrai.workctl`, creating the file first if
+`brainctl init` hasn't run:
 
 ```yaml
 schema_version: 1
 extensions:
-  workctl:
+  app.cerebrai.workctl:
     schema_version: 1
 ```
 
-`extensions.workctl.schema_version` is the format of `workctl`'s own settings, numbered
-independently of the file's `schema_version`. An existing `extensions.workctl` is never changed, but
+The `schema_version` under it is the format of `workctl`'s own settings, numbered independently of
+the file's `schema_version`. Existing settings for `app.cerebrai.workctl` are never changed, but
 `workctl init` checks it: only known keys, and a `schema_version` this release of `workctl`
 supports. Adding the key rewrites the file: comments and key order are kept, but blank lines are
 dropped and indentation becomes two spaces.
@@ -147,9 +148,12 @@ the binaries themselves are static.
 Any program can be an extension of `brainctl`, without changes to `brainctl`: it adds its own key
 under `extensions` in `.brain/config.yaml`. The rules:
 
-- **Name.** The key is the extension's name, normally its program name: lower case letters and
-  digits, with `.`, `-` or `_` between them (`example-tool`). Pick one unlikely to clash with other
-  extensions.
+- **ID.** The key is the extension's ID: a reverse domain name for a domain its author controls,
+  followed by the extension's name, so two authors never pick the same key. `workctl` is
+  `app.cerebrai.workctl`; a tool from `example.com` would be
+  `com.example.tool`, and one without a domain can use its code host, as in
+  `io.github.some-user.tool`. An ID has at least three labels separated by dots, each of lower case
+  letters and digits with single hyphens between them.
 - **Shape.** The value is a mapping with a `schema_version`: a positive integer for the format of
   the extension's settings. The extension numbers its own versions, starting at 1, independently
   of the file's `schema_version` and of other extensions.
@@ -163,9 +167,9 @@ under `extensions` in `.brain/config.yaml`. The rules:
 ```yaml
 schema_version: 1
 extensions:
-  workctl:
+  app.cerebrai.workctl:
     schema_version: 1
-  example-tool:
+  com.example.tool:
     schema_version: 3
     color: blue
 ```
@@ -185,7 +189,7 @@ path := brainconfig.Path(projectDir)
 if _, err := brainconfig.Init(path); err != nil {
 	return err
 }
-if _, err := brainconfig.AddExtension(path, "example-tool", 3); err != nil {
+if _, err := brainconfig.AddExtension(path, "com.example.tool", 3); err != nil {
 	return err
 }
 // Read your settings; this rejects unknown keys and newer versions.
@@ -194,7 +198,7 @@ if err != nil {
 	return err
 }
 var s settings
-if _, err := cfg.DecodeExtension("example-tool", 3, &s); err != nil {
+if _, err := cfg.DecodeExtension("com.example.tool", 3, &s); err != nil {
 	return err
 }
 ```

@@ -14,7 +14,7 @@ import (
 
 var (
 	brainctl = Program{Name: "brainctl"}
-	workctl  = Program{Name: "workctl", ExtensionSchemaVersion: 1}
+	workctl  = Program{Name: "workctl", ExtensionID: "app.cerebrai.workctl", ExtensionSchemaVersion: 1}
 )
 
 func run(args ...string) (code int, stdout, stderr string) {
@@ -121,11 +121,11 @@ func TestWorkctlInitAddsExtension(t *testing.T) {
 		t.Fatalf("brainctl init: got %d, %q", code, stderr)
 	}
 	code, stderr := runWorkctl("init")
-	if code != 0 || strings.Contains(stderr, "Wrote ") || !strings.Contains(stderr, "Added extensions.workctl to ") {
+	if code != 0 || strings.Contains(stderr, "Wrote ") || !strings.Contains(stderr, "Added settings for extension app.cerebrai.workctl to ") {
 		t.Fatalf("workctl init: got %d, %q", code, stderr)
 	}
 	path := filepath.Join(".brain", "config.yaml")
-	const want = "schema_version: 1\nextensions:\n  workctl:\n    schema_version: 1\n"
+	const want = "schema_version: 1\nextensions:\n  app.cerebrai.workctl:\n    schema_version: 1\n"
 	if data, err := os.ReadFile(path); err != nil || string(data) != want {
 		t.Errorf("config = %q, %v; want %q", data, err, want)
 	}
@@ -133,7 +133,7 @@ func TestWorkctlInitAddsExtension(t *testing.T) {
 		t.Error("workctl init made a .work directory")
 	}
 	// Running either init again changes nothing.
-	if code, stderr := runWorkctl("init"); code != 0 || !strings.Contains(stderr, "Using existing extensions.workctl") {
+	if code, stderr := runWorkctl("init"); code != 0 || !strings.Contains(stderr, "Using existing settings for extension app.cerebrai.workctl") {
 		t.Errorf("second workctl init: got %d, %q", code, stderr)
 	}
 	if code, _, stderr := run("init"); code != 0 {
@@ -147,10 +147,10 @@ func TestWorkctlInitAddsExtension(t *testing.T) {
 func TestWorkctlInitWithoutBrainConfig(t *testing.T) {
 	stubInstall(t, nil)
 	code, stderr := runWorkctl("init")
-	if code != 0 || !strings.Contains(stderr, "Wrote ") || !strings.Contains(stderr, "Added extensions.workctl") {
+	if code != 0 || !strings.Contains(stderr, "Wrote ") || !strings.Contains(stderr, "Added settings for extension app.cerebrai.workctl") {
 		t.Fatalf("got %d, %q", code, stderr)
 	}
-	const want = "schema_version: 1\nextensions:\n  workctl:\n    schema_version: 1\n"
+	const want = "schema_version: 1\nextensions:\n  app.cerebrai.workctl:\n    schema_version: 1\n"
 	if data, err := os.ReadFile(filepath.Join(".brain", "config.yaml")); err != nil || string(data) != want {
 		t.Errorf("config = %q, %v; want %q", data, err, want)
 	}
@@ -198,11 +198,11 @@ func TestThirdPartyExtension(t *testing.T) {
 		t.Fatalf("brainctl init: got %d, %q", code, stderr)
 	}
 	var errOut strings.Builder
-	tool := Program{Name: "example-tool", ExtensionSchemaVersion: 3}
+	tool := Program{Name: "tool", ExtensionID: "com.example.tool", ExtensionSchemaVersion: 3}
 	if code := Main(tool, []string{"init"}, io.Discard, &errOut); code != 0 {
-		t.Fatalf("example-tool init: got %d, %q", code, errOut.String())
+		t.Fatalf("tool init: got %d, %q", code, errOut.String())
 	}
-	const want = "schema_version: 1\nextensions:\n  other: {schema_version: 99, x: 1}\n  example-tool:\n    schema_version: 3\n"
+	const want = "schema_version: 1\nextensions:\n  other: {schema_version: 99, x: 1}\n  com.example.tool:\n    schema_version: 3\n"
 	if data, err := os.ReadFile(path); err != nil || string(data) != want {
 		t.Errorf("config = %q, %v; want %q", data, err, want)
 	}
@@ -214,10 +214,10 @@ func TestExtensionRejectsUnknownKeys(t *testing.T) {
 		t.Fatal(err)
 	}
 	if err := os.WriteFile(filepath.Join(".brain", "config.yaml"),
-		[]byte("schema_version: 1\nextensions:\n  workctl: {schema_version: 1, bogus: 1}\n"), 0o644); err != nil {
+		[]byte("schema_version: 1\nextensions:\n  app.cerebrai.workctl: {schema_version: 1, bogus: 1}\n"), 0o644); err != nil {
 		t.Fatal(err)
 	}
-	if code, stderr := runWorkctl("init"); code != 1 || !strings.Contains(stderr, "invalid extensions.workctl") {
+	if code, stderr := runWorkctl("init"); code != 1 || !strings.Contains(stderr, "invalid settings for extension app.cerebrai.workctl") {
 		t.Errorf("got %d, %q", code, stderr)
 	}
 }

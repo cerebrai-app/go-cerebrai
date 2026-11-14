@@ -50,7 +50,7 @@ func TestInitCreatesFile(t *testing.T) {
 }
 
 func TestInitKeepsExistingFile(t *testing.T) {
-	const content = "# mine\nschema_version: 1\nextensions:\n    workctl: {schema_version: 1}\n"
+	const content = "# mine\nschema_version: 1\nextensions:\n    app.cerebrai.workctl: {schema_version: 1}\n"
 	path := writeConfig(t, content)
 	if created, err := Init(path); err != nil || created {
 		t.Fatalf("Init: %v, %v", created, err)
@@ -69,17 +69,17 @@ func TestInitRejectsBadExistingFile(t *testing.T) {
 
 func TestAddExtension(t *testing.T) {
 	for _, tt := range []struct{ name, in, want string }{
-		{"new file", "schema_version: 1\n", "schema_version: 1\nextensions:\n  workctl:\n    schema_version: 1\n"},
+		{"new file", "schema_version: 1\n", "schema_version: 1\nextensions:\n  app.cerebrai.workctl:\n    schema_version: 1\n"},
 		{"keeps comments and other extensions",
 			"# my brain\nschema_version: 1 # format\n\nextensions:\n  other:\n    schema_version: 3 # keep\n",
 			// Blank lines are not kept: yaml.v3 does not record them.
-			"# my brain\nschema_version: 1 # format\nextensions:\n  other:\n    schema_version: 3 # keep\n  workctl:\n    schema_version: 1\n"},
-		{"empty extensions", "schema_version: 1\nextensions:\n", "schema_version: 1\nextensions:\n  workctl:\n    schema_version: 1\n"},
-		{"null extensions", "schema_version: 1\nextensions: null\n", "schema_version: 1\nextensions:\n  workctl:\n    schema_version: 1\n"},
-		{"flow extensions", "schema_version: 1\nextensions: {}\n", "schema_version: 1\nextensions:\n  workctl:\n    schema_version: 1\n"},
+			"# my brain\nschema_version: 1 # format\nextensions:\n  other:\n    schema_version: 3 # keep\n  app.cerebrai.workctl:\n    schema_version: 1\n"},
+		{"empty extensions", "schema_version: 1\nextensions:\n", "schema_version: 1\nextensions:\n  app.cerebrai.workctl:\n    schema_version: 1\n"},
+		{"null extensions", "schema_version: 1\nextensions: null\n", "schema_version: 1\nextensions:\n  app.cerebrai.workctl:\n    schema_version: 1\n"},
+		{"flow extensions", "schema_version: 1\nextensions: {}\n", "schema_version: 1\nextensions:\n  app.cerebrai.workctl:\n    schema_version: 1\n"},
 	} {
 		path := writeConfig(t, tt.in)
-		if added, err := AddExtension(path, "workctl", 1); err != nil || !added {
+		if added, err := AddExtension(path, "app.cerebrai.workctl", 1); err != nil || !added {
 			t.Errorf("%s: AddExtension: %v, %v", tt.name, added, err)
 			continue
 		}
@@ -87,16 +87,16 @@ func TestAddExtension(t *testing.T) {
 			t.Errorf("%s: file = %q, want %q", tt.name, got, tt.want)
 		}
 		cfg, err := Load(path)
-		if err != nil || !cfg.HasExtension("workctl") {
+		if err != nil || !cfg.HasExtension("app.cerebrai.workctl") {
 			t.Errorf("%s: Load: %+v, %v", tt.name, cfg, err)
 		}
 	}
 }
 
 func TestAddExtensionKeepsExisting(t *testing.T) {
-	const content = "schema_version: 1\nextensions:\n    workctl:\n        schema_version: 1 # mine\n"
+	const content = "schema_version: 1\nextensions:\n    app.cerebrai.workctl:\n        schema_version: 1 # mine\n"
 	path := writeConfig(t, content)
-	if added, err := AddExtension(path, "workctl", 1); err != nil || added {
+	if added, err := AddExtension(path, "app.cerebrai.workctl", 1); err != nil || added {
 		t.Fatalf("AddExtension: %v, %v", added, err)
 	}
 	if got := readFile(t, path); got != content {
@@ -107,13 +107,13 @@ func TestAddExtensionKeepsExisting(t *testing.T) {
 func TestAddExtensionRejectsBadFile(t *testing.T) {
 	const content = "schema_version: 1\nbogus: 1\n"
 	path := writeConfig(t, content)
-	if _, err := AddExtension(path, "workctl", 1); err == nil {
+	if _, err := AddExtension(path, "app.cerebrai.workctl", 1); err == nil {
 		t.Error("AddExtension accepted an invalid file")
 	}
 	if got := readFile(t, path); got != content {
 		t.Errorf("file changed to %q", got)
 	}
-	if _, err := AddExtension(filepath.Join(t.TempDir(), "missing.yaml"), "workctl", 1); err == nil {
+	if _, err := AddExtension(filepath.Join(t.TempDir(), "missing.yaml"), "app.cerebrai.workctl", 1); err == nil {
 		t.Error("AddExtension accepted a missing file")
 	}
 }
@@ -123,7 +123,7 @@ func TestAddExtensionKeepsPermissions(t *testing.T) {
 	if err := os.Chmod(path, 0o600); err != nil {
 		t.Fatal(err)
 	}
-	if _, err := AddExtension(path, "workctl", 1); err != nil {
+	if _, err := AddExtension(path, "app.cerebrai.workctl", 1); err != nil {
 		t.Fatal(err)
 	}
 	info, err := os.Stat(path)
@@ -143,11 +143,11 @@ func TestUnmarshal(t *testing.T) {
 	for _, in := range []string{
 		"schema_version: 1\n",
 		"schema_version: 1\nextensions:\n",
-		"schema_version: 1\nextensions:\n  workctl: {schema_version: 1}\n  other: {schema_version: 7, x: [1, 2]}\n",
+		"schema_version: 1\nextensions:\n  app.cerebrai.workctl: {schema_version: 1}\n  other: {schema_version: 7, x: [1, 2]}\n",
 		// brainctl never looks inside extensions, so none of these stop it.
-		"schema_version: 1\nextensions:\n  workctl: 1\n",
-		"schema_version: 1\nextensions:\n  workctl:\n",
-		"schema_version: 1\nextensions:\n  workctl: {}\n",
+		"schema_version: 1\nextensions:\n  app.cerebrai.workctl: 1\n",
+		"schema_version: 1\nextensions:\n  app.cerebrai.workctl:\n",
+		"schema_version: 1\nextensions:\n  app.cerebrai.workctl: {}\n",
 		"schema_version: 1\nextensions:\n  w: {schema_version: 99, x: [1]}\n",
 		"schema_version: 1\nextensions:\n  Not A Name: {schema_version: x}\n",
 	} {
@@ -180,61 +180,67 @@ type workctlSettings struct {
 
 func TestDecodeExtension(t *testing.T) {
 	cfg, err := Unmarshal([]byte("schema_version: 1\nextensions:\n" +
-		"  workctl: {schema_version: 2}\n" +
-		"  example-tool: {schema_version: 3, color: blue}\n"))
+		"  app.cerebrai.workctl: {schema_version: 2}\n" +
+		"  com.example.tool: {schema_version: 3, color: blue}\n"))
 	if err != nil {
 		t.Fatal(err)
 	}
 	var w workctlSettings
-	if ok, err := cfg.DecodeExtension("workctl", 2, &w); err != nil || !ok || w.SchemaVersion != 2 {
-		t.Errorf("workctl: %+v, %v, %v", w, ok, err)
+	if ok, err := cfg.DecodeExtension("app.cerebrai.workctl", 2, &w); err != nil || !ok || w.SchemaVersion != 2 {
+		t.Errorf("app.cerebrai.workctl: %+v, %v, %v", w, ok, err)
 	}
 	// A third-party extension's own settings type.
 	var third struct {
 		SchemaVersion int    `yaml:"schema_version"`
 		Color         string `yaml:"color"`
 	}
-	if ok, err := cfg.DecodeExtension("example-tool", 3, &third); err != nil || !ok || third.Color != "blue" {
-		t.Errorf("example-tool: %+v, %v, %v", third, ok, err)
+	if ok, err := cfg.DecodeExtension("com.example.tool", 3, &third); err != nil || !ok || third.Color != "blue" {
+		t.Errorf("com.example.tool: %+v, %v, %v", third, ok, err)
 	}
-	if got := cfg.ExtensionNames(); !slices.Equal(got, []string{"example-tool", "workctl"}) {
-		t.Errorf("ExtensionNames = %q", got)
+	if got := cfg.ExtensionIDs(); !slices.Equal(got, []string{"app.cerebrai.workctl", "com.example.tool"}) {
+		t.Errorf("ExtensionIDs = %q", got)
 	}
 	if ok, err := cfg.DecodeExtension("missing", 1, &w); err != nil || ok {
 		t.Errorf("missing: %v, %v", ok, err)
 	}
-	if _, err := cfg.DecodeExtension("workctl", 1, &w); err == nil || !strings.Contains(err.Error(), "extensions.workctl.schema_version 2, but this release reads only up to 1") {
+	if _, err := cfg.DecodeExtension("app.cerebrai.workctl", 1, &w); err == nil || !strings.Contains(err.Error(), "schema_version 2 for extension app.cerebrai.workctl, but this release reads only up to 1") {
 		t.Errorf("too new: %v", err)
 	}
-	if _, err := cfg.DecodeExtension("example-tool", 3, &w); err == nil || !strings.Contains(err.Error(), "invalid extensions.example-tool") {
+	if _, err := cfg.DecodeExtension("com.example.tool", 3, &w); err == nil || !strings.Contains(err.Error(), "invalid settings for extension com.example.tool") {
 		t.Errorf("unknown key: %v", err)
 	}
 	for in, wantErr := range map[string]string{
-		"workctl: 1":                    "extensions.workctl must be a mapping",
-		"workctl:":                      "extensions.workctl must be a mapping",
-		"workctl: {}":                   "no extensions.workctl.schema_version",
-		"workctl: {schema_version: -2}": "invalid extensions.workctl.schema_version -2",
-		"workctl: {schema_version: x}":  "invalid extensions.workctl",
+		"app.cerebrai.workctl: 1":                    "settings for extension app.cerebrai.workctl must be a mapping",
+		"app.cerebrai.workctl:":                      "settings for extension app.cerebrai.workctl must be a mapping",
+		"app.cerebrai.workctl: {}":                   "no schema_version for extension app.cerebrai.workctl",
+		"app.cerebrai.workctl: {schema_version: -2}": "invalid schema_version -2 for extension app.cerebrai.workctl",
+		"app.cerebrai.workctl: {schema_version: x}":  "invalid settings for extension app.cerebrai.workctl",
 	} {
 		cfg, err := Unmarshal([]byte("schema_version: 1\nextensions:\n  " + in + "\n"))
 		if err != nil {
 			t.Fatalf("%q: %v", in, err)
 		}
-		if _, err := cfg.DecodeExtension("workctl", 1, &w); err == nil || !strings.Contains(err.Error(), wantErr) {
+		if _, err := cfg.DecodeExtension("app.cerebrai.workctl", 1, &w); err == nil || !strings.Contains(err.Error(), wantErr) {
 			t.Errorf("%q: got %v, want error containing %q", in, err, wantErr)
 		}
 	}
 }
 
-func TestCheckName(t *testing.T) {
-	for _, name := range []string{"workctl", "example-tool", "a.b_c-1", "x"} {
-		if err := CheckName(name); err != nil {
-			t.Errorf("%q: %v", name, err)
+func TestCheckID(t *testing.T) {
+	for _, id := range []string{
+		"app.cerebrai.workctl", "com.example.tool", "io.github.some-user.my-tool", "com.example.x2.sub.tool",
+	} {
+		if err := CheckID(id); err != nil {
+			t.Errorf("%q: %v", id, err)
 		}
 	}
-	for _, name := range []string{"", "Workctl", "-x", "x-", "a..b", "a b", "a/b", "brainctl"} {
-		if err := CheckName(name); err == nil {
-			t.Errorf("%q: accepted", name)
+	for _, id := range []string{
+		"", "workctl", "example.tool", "App.cerebrai.workctl", "com.example.-tool", "com.example.tool-",
+		"com.example..tool", "com.example.my--tool", "com.example.my_tool", ".com.example.tool",
+		"com.example.tool.", "com.example.a b", "com/example/tool",
+	} {
+		if err := CheckID(id); err == nil {
+			t.Errorf("%q: accepted", id)
 		}
 	}
 }
@@ -242,10 +248,10 @@ func TestCheckName(t *testing.T) {
 func TestAddExtensionChecksArguments(t *testing.T) {
 	const content = "schema_version: 1\n"
 	path := writeConfig(t, content)
-	if _, err := AddExtension(path, "Bad Name", 1); err == nil {
-		t.Error("accepted a bad name")
+	if _, err := AddExtension(path, "workctl", 1); err == nil {
+		t.Error("accepted an ID that is not a reverse domain name")
 	}
-	if _, err := AddExtension(path, "workctl", 0); err == nil {
+	if _, err := AddExtension(path, "app.cerebrai.workctl", 0); err == nil {
 		t.Error("accepted schema version 0")
 	}
 	if got := readFile(t, path); got != content {
@@ -256,19 +262,19 @@ func TestAddExtensionChecksArguments(t *testing.T) {
 func TestAddExtensionKeepsOtherExtensions(t *testing.T) {
 	// Another extension's settings, however odd, are kept as they are.
 	path := writeConfig(t, "schema_version: 1\nextensions:\n  other: [not, a, mapping]\n")
-	if added, err := AddExtension(path, "example-tool", 4); err != nil || !added {
+	if added, err := AddExtension(path, "com.example.tool", 4); err != nil || !added {
 		t.Fatalf("AddExtension: %v, %v", added, err)
 	}
-	const want = "schema_version: 1\nextensions:\n  other: [not, a, mapping]\n  example-tool:\n    schema_version: 4\n"
+	const want = "schema_version: 1\nextensions:\n  other: [not, a, mapping]\n  com.example.tool:\n    schema_version: 4\n"
 	if got := readFile(t, path); got != want {
 		t.Errorf("file = %q, want %q", got, want)
 	}
 }
 
 func TestAddExtensionRejectsBadExtension(t *testing.T) {
-	const content = "schema_version: 1\nextensions:\n  workctl: {schema_version: 2}\n"
+	const content = "schema_version: 1\nextensions:\n  app.cerebrai.workctl: {schema_version: 2}\n"
 	path := writeConfig(t, content)
-	if _, err := AddExtension(path, "workctl", 1); err == nil || !strings.Contains(err.Error(), "upgrade") {
+	if _, err := AddExtension(path, "app.cerebrai.workctl", 1); err == nil || !strings.Contains(err.Error(), "upgrade") {
 		t.Errorf("AddExtension: %v", err)
 	}
 	if got := readFile(t, path); got != content {
