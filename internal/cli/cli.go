@@ -51,7 +51,7 @@ type extensionSettings struct {
 func Main(prog Program, args []string, stdout, stderr io.Writer) int {
 	name := prog.Name
 	usage := func() {
-		extensions := ""
+		extensions := "  config      get and set values in the settings for extension " + prog.ExtensionID + "\n"
 		if prog.ExtensionID == "" {
 			extensions = "  extensions  list the extensions in the brain config and their executables\n"
 		}
@@ -88,6 +88,11 @@ Run "%[1]s <command> -h" for more about a command.
 		// brainctl's alone: its extensions have no extensions of their own.
 		if prog.ExtensionID == "" {
 			return runExtensions(name, args[1:], stdout, stderr)
+		}
+	case "config":
+		// Extensions' alone: brainctl's own keys are not settings to edit.
+		if prog.ExtensionID != "" {
+			return runConfig(prog, args[1:], stdout, stderr)
 		}
 	case "help", "-h", "-help", "--help":
 		usage()

@@ -397,7 +397,7 @@ func AddExtension(path, id string, want ExtensionBase) (added []string, err erro
 		return nil, nil
 	}
 
-	err = editConfig(path, data, func(root *yaml.Node) {
+	err = editConfig(path, data, func(root *yaml.Node) error {
 		exts := mappingValue(root, "extensions")
 		if exts == nil {
 			exts = &yaml.Node{}
@@ -412,6 +412,7 @@ func AddExtension(path, id string, want ExtensionBase) (added []string, err erro
 		for _, key := range keys {
 			ext.Content = append(ext.Content, scalar(key), values[key])
 		}
+		return nil
 	})
 	if err != nil {
 		return nil, err
@@ -421,14 +422,17 @@ func AddExtension(path, id string, want ExtensionBase) (added []string, err erro
 
 // editConfig applies edit to the top-level mapping of data, the content of
 // the config file at path, which Unmarshal has accepted, and writes the result
-// to path with writeFile.
-func editConfig(path string, data []byte, edit func(root *yaml.Node)) error {
+// to path with writeFile. If edit returns an error, nothing is written and
+// editConfig returns that error, with path.
+func editConfig(path string, data []byte, edit func(root *yaml.Node) error) error {
 	var doc yaml.Node
 	if err := yaml.Unmarshal(data, &doc); err != nil {
 		return fmt.Errorf("%s: invalid config file: %w", path, err)
 	}
 	// Unmarshal accepted the file, so it is one document holding a mapping.
-	edit(doc.Content[0])
+	if err := edit(doc.Content[0]); err != nil {
+		return fmt.Errorf("%s: %w", path, err)
+	}
 	var buf bytes.Buffer
 	enc := yaml.NewEncoder(&buf)
 	enc.SetIndent(2)

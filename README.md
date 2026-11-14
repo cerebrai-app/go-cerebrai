@@ -9,8 +9,8 @@ They replace the Rust [brainctl](https://github.com/cerebrai-app/brainctl) and
 
 | Path | What it is |
 | --- | --- |
-| [`cmd/brainctl`](cmd/brainctl), [`cmd/workctl`](cmd/workctl) | the two programs; each only calls `cli.Main` with its name (and `workctl` with the schema version of its settings) |
-| [`internal/cli`](internal/cli) | the command line both programs share: `version` and `init` |
+| [`cmd/brainctl`](cmd/brainctl), [`cmd/workctl`](cmd/workctl) | the two programs; each only calls `cli.Main` with its name (and `workctl` with its extension ID and the schema version of its settings) |
+| [`internal/cli`](internal/cli) | the command line both programs share: `version` and `init`, `brainctl`'s `extensions` and `workctl`'s `config` |
 | [`brainconfig`](brainconfig) | reads and writes the brain config file, `.brain/config.yaml`, for `brainctl` and its extensions, including [third-party ones](#writing-an-extension) |
 | [`internal/python`](internal/python) | downloads, verifies and unpacks [python-build-standalone](https://github.com/astral-sh/python-build-standalone) distributions (the port of the `cerebrai-python` crate) |
 | [`internal/buildinfo`](internal/buildinfo) | `buildinfo.Version()`: the version the release links in from the tag, else the module version from `go install`, else `dev` |
@@ -70,7 +70,7 @@ Check the install with `brainctl version`.
 ## Usage
 
 `brainctl` and `workctl` have the same `version` and `init` commands; `extensions` is
-`brainctl`'s alone.
+`brainctl`'s alone, and `config` is `workctl`'s.
 
 ```sh
 brainctl version
@@ -79,6 +79,8 @@ brainctl init --python-version 3           # newest Python 3.x
 brainctl init --python-version 3.13.9      # exact version
 brainctl init --variant pgo+lto            # exact build options, no fallback
 brainctl extensions ls                     # the extensions brainctl can discover (also l, list)
+workctl config set env/client_id abc123    # set a value in workctl's settings
+workctl config get env/client_id           # print it
 ```
 
 ### `init`
@@ -194,6 +196,48 @@ whose settings are broken shows why, in its own row, without hiding the others. 
 invalid config file is an error. The table goes to stdout; with no extensions, stdout is empty
 and a note goes to stderr.
 
+### `config`
+
+`workctl config get <key path>` and `workctl config set <key path> <value>` read and write values
+in `workctl`'s own settings, under `extensions.app.cerebrai.workctl` in the brain home's config
+file. A key path is keys separated by `/`: `env/client_id` is the `client_id` key in the `env`
+mapping.
+
+```console
+$ workctl config set env/client_id abc123
+$ workctl config set env/debug true
+$ workctl config get env/client_id
+abc123
+$ workctl config get env
+client_id: abc123
+debug: "true"
+```
+
+```yaml
+extensions:
+  app.cerebrai.workctl:
+    schema_version: 1
+    name: workctl
+    bin: workctl
+    env:
+      client_id: abc123
+      debug: "true"
+```
+
+- `get` prints a value as it is, and a mapping or list as YAML. A key path that isn't set is an
+  error (exit status 1), so scripts can tell it apart from an empty value.
+- `set` creates the mappings on the way that are missing, and stores the value as a string: one
+  that would read as another type, like `true` or `8080`, is quoted so it reads back the same.
+  Setting the value a key already has leaves the file alone.
+- `set` won't lose data: it never replaces a mapping or a list with a value, and a key path can't
+  go through a value that isn't a mapping. `schema_version` can't be set, since `workctl`
+  manages it, and `name` and `bin` must be valid.
+- Both check the settings first, as `init` does, and fail with "run workctl init first" if there
+  are none yet. `set` changes nothing if they are wrong. Comments are kept, including one on the
+  value replaced.
+
+`brainctl` has no `config` command: its own keys aren't settings to edit by hand this way.
+
 ## Writing an extension
 
 Any program can be an extension of `brainctl`, without changes to `brainctl`: it adds its own key
@@ -272,6 +316,11 @@ if _, err := brainconfig.AddExtension(path, "com.example.tool", brainconfig.Exte
 	return err
 }
 ```
+
+For a `config` command like `workctl`'s, `cfg.ExtensionValue(id, schemaVersion, keyPath)` reads
+a value by key path and `brainconfig.SetExtensionValue(path, id, schemaVersion, keyPath, value)`
+sets one, with the same rules; `workctl`'s command is a thin layer over them in
+[`internal/cli`](internal/cli).
 
 Extensions in other languages edit the YAML directly. Use a library that keeps comments if you
 can, since people may annotate the file.
