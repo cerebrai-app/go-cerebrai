@@ -9,14 +9,15 @@ They replace the Rust [brainctl](https://github.com/cerebrai-app/brainctl) and
 
 | Path | What it is |
 | --- | --- |
-| [`cmd/brainctl`](cmd/brainctl), [`cmd/workctl`](cmd/workctl) | the two programs; each only calls `cli.Main` with its name |
+| [`cmd/brainctl`](cmd/brainctl), [`cmd/workctl`](cmd/workctl) | the two programs; each only calls `cli.Main` with its name (and `workctl` with the schema version of its settings) |
 | [`internal/cli`](internal/cli) | the command line both programs share: `version` and `init` |
-| [`internal/config`](internal/config) | reads and writes the brain config file, `.brain/config.yaml`, which `workctl` shares as an extension |
+| [`brainconfig`](brainconfig) | reads and writes the brain config file, `.brain/config.yaml`, for `brainctl` and its extensions, including [third-party ones](#writing-an-extension) |
 | [`internal/python`](internal/python) | downloads, verifies and unpacks [python-build-standalone](https://github.com/astral-sh/python-build-standalone) distributions (the port of the `cerebrai-python` crate) |
 | [`internal/buildinfo`](internal/buildinfo) | `buildinfo.Version()`: the version the release links in from the tag, else the module version from `go install`, else `dev` |
 
 Shared code lives under `internal/`, so only these programs can import it and it has no API of
-its own to version.
+its own to version. The exception is `brainconfig`, which other programs import to be extensions of
+`brainctl`; its API follows the module's version.
 
 ## Install
 
@@ -104,11 +105,13 @@ extensions:
 
 `extensions.workctl.schema_version` is the format of `workctl`'s own settings, numbered
 independently of the file's `schema_version`. An existing `extensions.workctl` is never changed, but
-`workctl init` checks it the same way: only known keys, and a `schema_version` this release of
-`workctl` supports. Adding the key rewrites the file: comments and
-key order are kept, but blank lines are dropped and indentation becomes two spaces. Each extension
-keeps its own settings under `extensions.<program>`. `brainctl` only checks that each one is a
-mapping with a positive `schema_version`; the extension checks the rest.
+`workctl init` checks it: only known keys, and a `schema_version` this release of `workctl`
+supports. Adding the key rewrites the file: comments and key order are kept, but blank lines are
+dropped and indentation becomes two spaces.
+
+`brainctl` never looks inside `extensions`, beyond checking that it is a mapping, so it works with
+any extension, including ones it has never heard of, and a broken extension's settings can't stop
+it.
 
 Then it downloads a [python-build-standalone](https://github.com/astral-sh/python-build-standalone)
 distribution to `<data dir>/python-build-standalone/<version>+<build options>/` (for example
@@ -138,6 +141,66 @@ whatever paths or links the archive holds.
 
 On Linux, `init` picks the glibc or musl build by checking which C library `/bin/sh` uses, since
 the binaries themselves are static.
+
+## Writing an extension
+
+Any program can be an extension of `brainctl`, without changes to `brainctl`: it adds its own key
+under `extensions` in `.brain/config.yaml`. The rules:
+
+- **Name.** The key is the extension's name, normally its program name: lower case letters and
+  digits, with `.`, `-` or `_` between them (`example-tool`). Pick one unlikely to clash with other
+  extensions.
+- **Shape.** The value is a mapping with a `schema_version`: a positive integer for the format of
+  the extension's settings. The extension numbers its own versions, starting at 1, independently
+  of the file's `schema_version` and of other extensions.
+- **Write only your own key.** Don't change the top-level keys or another extension's settings,
+  and keep content you don't understand. If the file is missing, create it with
+  `schema_version: 1` first.
+- **Check the versions.** Refuse a file whose top-level `schema_version` is newer than you know
+  (currently `1`), and settings whose `schema_version` is newer than your release reads, rather
+  than misreading them.
+
+```yaml
+schema_version: 1
+extensions:
+  workctl:
+    schema_version: 1
+  example-tool:
+    schema_version: 3
+    color: blue
+```
+
+Extensions written in Go can import [`brainconfig`](brainconfig), which follows these rules:
+
+```go
+import "github.com/cerebrai-app/go-cerebrai/brainconfig"
+
+type settings struct {
+	SchemaVersion int    `yaml:"schema_version"`
+	Color         string `yaml:"color"`
+}
+
+path := brainconfig.Path(projectDir)
+// Create the file if it is missing, then add your key if it is missing.
+if _, err := brainconfig.Init(path); err != nil {
+	return err
+}
+if _, err := brainconfig.AddExtension(path, "example-tool", 3); err != nil {
+	return err
+}
+// Read your settings; this rejects unknown keys and newer versions.
+cfg, err := brainconfig.Load(path)
+if err != nil {
+	return err
+}
+var s settings
+if _, err := cfg.DecodeExtension("example-tool", 3, &s); err != nil {
+	return err
+}
+```
+
+Extensions in other languages edit the YAML directly. Use a library that keeps comments if you
+can, since people may annotate the file.
 
 ## Supported Go versions
 

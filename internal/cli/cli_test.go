@@ -12,9 +12,14 @@ import (
 	"github.com/cerebrai-app/go-cerebrai/internal/python"
 )
 
+var (
+	brainctl = Program{Name: "brainctl"}
+	workctl  = Program{Name: "workctl", ExtensionSchemaVersion: 1}
+)
+
 func run(args ...string) (code int, stdout, stderr string) {
 	var out, errOut strings.Builder
-	code = Main("brainctl", args, &out, &errOut)
+	code = Main(brainctl, args, &out, &errOut)
 	return code, out.String(), errOut.String()
 }
 
@@ -106,7 +111,7 @@ func TestInitWritesConfig(t *testing.T) {
 
 func runWorkctl(args ...string) (code int, stderr string) {
 	var out, errOut strings.Builder
-	code = Main("workctl", args, &out, &errOut)
+	code = Main(workctl, args, &out, &errOut)
 	return code, errOut.String()
 }
 
@@ -168,7 +173,7 @@ func TestInitStopsOnBadConfig(t *testing.T) {
 
 func TestVersionWriteError(t *testing.T) {
 	var errOut strings.Builder
-	if code := Main("brainctl", []string{"version"}, failingWriter{}, &errOut); code != 1 {
+	if code := Main(brainctl, []string{"version"}, failingWriter{}, &errOut); code != 1 {
 		t.Errorf("got %d, stderr %q", code, errOut.String())
 	}
 }
@@ -177,10 +182,42 @@ type failingWriter struct{}
 
 func (failingWriter) Write([]byte) (int, error) { return 0, io.ErrClosedPipe }
 
-func TestUnknownExtension(t *testing.T) {
+func TestThirdPartyExtension(t *testing.T) {
 	stubInstall(t, nil)
+	if err := os.Mkdir(".brain", 0o755); err != nil {
+		t.Fatal(err)
+	}
+	// Settings from an extension brainctl knows nothing about, in a format
+	// newer than anything here, must not stop brainctl.
+	const before = "schema_version: 1\nextensions:\n  other: {schema_version: 99, x: 1}\n"
+	path := filepath.Join(".brain", "config.yaml")
+	if err := os.WriteFile(path, []byte(before), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if code, _, stderr := run("init"); code != 0 {
+		t.Fatalf("brainctl init: got %d, %q", code, stderr)
+	}
 	var errOut strings.Builder
-	if code := Main("nopectl", []string{"init"}, io.Discard, &errOut); code != 1 || !strings.Contains(errOut.String(), "not a known extension") {
-		t.Errorf("got %d, %q", code, errOut.String())
+	tool := Program{Name: "example-tool", ExtensionSchemaVersion: 3}
+	if code := Main(tool, []string{"init"}, io.Discard, &errOut); code != 0 {
+		t.Fatalf("example-tool init: got %d, %q", code, errOut.String())
+	}
+	const want = "schema_version: 1\nextensions:\n  other: {schema_version: 99, x: 1}\n  example-tool:\n    schema_version: 3\n"
+	if data, err := os.ReadFile(path); err != nil || string(data) != want {
+		t.Errorf("config = %q, %v; want %q", data, err, want)
+	}
+}
+
+func TestExtensionRejectsUnknownKeys(t *testing.T) {
+	stubInstall(t, nil)
+	if err := os.Mkdir(".brain", 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(".brain", "config.yaml"),
+		[]byte("schema_version: 1\nextensions:\n  workctl: {schema_version: 1, bogus: 1}\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if code, stderr := runWorkctl("init"); code != 1 || !strings.Contains(stderr, "invalid extensions.workctl") {
+		t.Errorf("got %d, %q", code, stderr)
 	}
 }

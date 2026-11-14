@@ -1,6 +1,7 @@
-// Package cli is the command line shared by brainctl and workctl, which
-// differ only in their name. workctl is an extension of brainctl: both use
-// the same .brain/config.yaml, where workctl's init adds extensions.workctl.
+// Package cli is the command line shared by brainctl and workctl. workctl is
+// an extension of brainctl: both use the same .brain/brainconfig.yaml, where
+// workctl's init adds extensions.workctl. Each program describes itself with
+// a Program, so this package keeps no list of extensions.
 package cli
 
 import (
@@ -11,17 +12,37 @@ import (
 	"os"
 	"path/filepath"
 
+	"github.com/cerebrai-app/go-cerebrai/brainconfig"
 	"github.com/cerebrai-app/go-cerebrai/internal/buildinfo"
-	"github.com/cerebrai-app/go-cerebrai/internal/config"
 	"github.com/cerebrai-app/go-cerebrai/internal/python"
 )
 
 // install is python.Install; tests replace it.
 var install = python.Install
 
-// Main runs the program called name with args (without the program name) and
-// returns its exit code: 0 on success, 1 on failure, 2 on a usage error.
-func Main(name string, args []string, stdout, stderr io.Writer) int {
+// Program describes the program Main runs.
+type Program struct {
+	// Name is the program's name: brainconfig.Base for brainctl itself,
+	// otherwise the extension's name, which is also its key under extensions
+	// in the config file.
+	Name string
+	// ExtensionSchemaVersion is, for an extension, the newest format of its
+	// settings in the config file (extensions.<Name>.schema_version) that it
+	// writes and reads. Raise it when a change would make older releases misread
+	// the settings. Unused for brainctl.
+	ExtensionSchemaVersion int
+}
+
+// extensionSettings is the settings an extension built on this package keeps
+// in the config file.
+type extensionSettings struct {
+	SchemaVersion int `yaml:"schema_version"`
+}
+
+// Main runs prog with args (without the program name) and returns its exit
+// code: 0 on success, 1 on failure, 2 on a usage error.
+func Main(prog Program, args []string, stdout, stderr io.Writer) int {
+	name := prog.Name
 	usage := func() {
 		_, _ = fmt.Fprintf(stderr, `usage: %[1]s <command> [flags]
 
@@ -31,7 +52,7 @@ commands:
             python-build-standalone distribution
 
 Run "%[1]s init -h" for the flags of init.
-`, name, filepath.Join(config.DirName, config.FileName))
+`, name, filepath.Join(brainconfig.DirName, brainconfig.FileName))
 	}
 	if len(args) == 0 {
 		usage()
@@ -50,7 +71,7 @@ Run "%[1]s init -h" for the flags of init.
 		}
 		return 0
 	case "init":
-		return runInit(name, args[1:], stderr)
+		return runInit(prog, args[1:], stderr)
 	case "help", "-h", "-help", "--help":
 		usage()
 		return 0
@@ -60,7 +81,8 @@ Run "%[1]s init -h" for the flags of init.
 	return 2
 }
 
-func runInit(name string, args []string, stderr io.Writer) int {
+func runInit(prog Program, args []string, stderr io.Writer) int {
+	name := prog.Name
 	fs := flag.NewFlagSet(name+" init", flag.ContinueOnError)
 	fs.SetOutput(stderr)
 	opts := python.Options{Log: stderr}
@@ -95,7 +117,7 @@ that has the preferred build; a note is printed if a newer one exists only as an
 		_, _ = fmt.Fprintf(stderr, "error: %v\n", err)
 		return 1
 	}
-	if err := initConfig(name, config.Path(dir), stderr); err != nil {
+	if err := initConfig(prog, brainconfig.Path(dir), stderr); err != nil {
 		_, _ = fmt.Fprintf(stderr, "error: %v\n", err)
 		return 1
 	}
@@ -109,46 +131,45 @@ that has the preferred build; a note is printed if a newer one exists only as an
 // initWrites says what init does to the config file for the program called
 // name, for its usage.
 func initWrites(name string) string {
-	path := filepath.Join(config.DirName, config.FileName)
-	if name == config.Base {
+	path := filepath.Join(brainconfig.DirName, brainconfig.FileName)
+	if name == brainconfig.Base {
 		return "Writes " + path + " in the current directory if it is missing"
 	}
 	return "Adds extensions." + name + " to " + path + " in the current directory\n" +
 		"(creating the file if it is missing)"
 }
 
-// extensionSchemaVersions is, for each extension of brainctl, the newest
-// format of its settings in the config file (extensions.<name>.schema_version)
-// that this release writes and reads. Raise one when a change would make older
-// releases of that extension misread its settings.
-var extensionSchemaVersions = map[string]int{
-	"workctl": 1,
-}
-
 // initConfig makes sure the config file at path exists and, for an extension
 // of brainctl, holds the extension's key. An extension creates the file too if
 // brainctl's init has not run yet.
-func initConfig(name, path string, log io.Writer) error {
-	created, err := config.Init(path)
+func initConfig(prog Program, path string, log io.Writer) error {
+	name := prog.Name
+	created, err := brainconfig.Init(path)
 	if err != nil {
 		return err
 	}
 	if created {
 		_, _ = fmt.Fprintf(log, "Wrote %s\n", path)
 	}
-	if name == config.Base {
+	if name == brainconfig.Base {
 		if !created {
 			_, _ = fmt.Fprintf(log, "Using existing %s\n", path)
 		}
 		return nil
 	}
-	version, ok := extensionSchemaVersions[name]
-	if !ok {
-		return fmt.Errorf("%s is not a known extension of %s", name, config.Base)
-	}
-	added, err := config.AddExtension(path, name, version)
+	added, err := brainconfig.AddExtension(path, name, prog.ExtensionSchemaVersion)
 	if err != nil {
 		return err
+	}
+	if !added {
+		// AddExtension checked only the version; check the rest too.
+		cfg, err := brainconfig.Load(path)
+		if err != nil {
+			return err
+		}
+		if _, err := cfg.DecodeExtension(name, prog.ExtensionSchemaVersion, new(extensionSettings)); err != nil {
+			return fmt.Errorf("%s: %w", path, err)
+		}
 	}
 	if added {
 		_, _ = fmt.Fprintf(log, "Added extensions.%s to %s\n", name, path)

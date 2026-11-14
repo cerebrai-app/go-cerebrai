@@ -8,6 +8,12 @@ import (
 	"github.com/cerebrai-app/go-cerebrai/internal/cli"
 )
 
+// extensionSchemaVersion is the newest format of workctl's settings in the
+// brain config file (extensions.workctl.schema_version) that this release
+// writes and reads. Raise it when a change would make older releases misread
+// them.
+const extensionSchemaVersion = 1
+
 func main() {
-	os.Exit(cli.Main("workctl", os.Args[1:], os.Stdout, os.Stderr))
+	os.Exit(cli.Main(cli.Program{Name: "workctl", ExtensionSchemaVersion: extensionSchemaVersion}, os.Args[1:], os.Stdout, os.Stderr))
 }

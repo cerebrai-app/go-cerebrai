@@ -1,9 +1,10 @@
-package config
+package brainconfig
 
 import (
 	"os"
 	"path/filepath"
 	"runtime"
+	"slices"
 	"strings"
 	"testing"
 )
@@ -86,7 +87,7 @@ func TestAddExtension(t *testing.T) {
 			t.Errorf("%s: file = %q, want %q", tt.name, got, tt.want)
 		}
 		cfg, err := Load(path)
-		if _, ok := cfg.Extensions["workctl"]; err != nil || !ok {
+		if err != nil || !cfg.HasExtension("workctl") {
 			t.Errorf("%s: Load: %+v, %v", tt.name, cfg, err)
 		}
 	}
@@ -143,6 +144,12 @@ func TestUnmarshal(t *testing.T) {
 		"schema_version: 1\n",
 		"schema_version: 1\nextensions:\n",
 		"schema_version: 1\nextensions:\n  workctl: {schema_version: 1}\n  other: {schema_version: 7, x: [1, 2]}\n",
+		// brainctl never looks inside extensions, so none of these stop it.
+		"schema_version: 1\nextensions:\n  workctl: 1\n",
+		"schema_version: 1\nextensions:\n  workctl:\n",
+		"schema_version: 1\nextensions:\n  workctl: {}\n",
+		"schema_version: 1\nextensions:\n  w: {schema_version: 99, x: [1]}\n",
+		"schema_version: 1\nextensions:\n  Not A Name: {schema_version: x}\n",
 	} {
 		if cfg, err := Unmarshal([]byte(in)); err != nil || cfg.SchemaVersion != 1 {
 			t.Errorf("%q: %+v, %v", in, cfg, err)
@@ -159,9 +166,7 @@ func TestUnmarshal(t *testing.T) {
 		"schema_version: 2\n":              "reads only up to 1",
 		"[1, 2]\n":                         "invalid config file",
 		"schema_version: 1\n---\nx: 1\n":   "single YAML document",
-		"schema_version: 1\nextensions: [workctl]\n":     "invalid config file",
-		"schema_version: 1\nextensions:\n  workctl: 1\n": "extensions.workctl must be a mapping",
-		"schema_version: 1\nextensions:\n  workctl:\n":   "extensions.workctl must be a mapping",
+		"schema_version: 1\nextensions: [workctl]\n": "invalid config file",
 	} {
 		if _, err := Unmarshal([]byte(in)); err == nil || !strings.Contains(err.Error(), wantErr) {
 			t.Errorf("%q: got %v, want error containing %q", in, err, wantErr)
@@ -169,26 +174,94 @@ func TestUnmarshal(t *testing.T) {
 	}
 }
 
-func TestExtension(t *testing.T) {
-	cfg, err := Unmarshal([]byte("schema_version: 1\nextensions:\n  workctl: {schema_version: 2}\n"))
+type workctlSettings struct {
+	SchemaVersion int `yaml:"schema_version"`
+}
+
+func TestDecodeExtension(t *testing.T) {
+	cfg, err := Unmarshal([]byte("schema_version: 1\nextensions:\n" +
+		"  workctl: {schema_version: 2}\n" +
+		"  example-tool: {schema_version: 3, color: blue}\n"))
 	if err != nil {
 		t.Fatal(err)
 	}
-	if ext, ok, err := cfg.Extension("workctl", 2); err != nil || !ok || ext.SchemaVersion != 2 {
-		t.Errorf("workctl: %+v, %v, %v", ext, ok, err)
+	var w workctlSettings
+	if ok, err := cfg.DecodeExtension("workctl", 2, &w); err != nil || !ok || w.SchemaVersion != 2 {
+		t.Errorf("workctl: %+v, %v, %v", w, ok, err)
 	}
-	if _, ok, err := cfg.Extension("other", 1); err != nil || ok {
-		t.Errorf("other: %v, %v", ok, err)
+	// A third-party extension's own settings type.
+	var third struct {
+		SchemaVersion int    `yaml:"schema_version"`
+		Color         string `yaml:"color"`
 	}
-	if _, _, err := cfg.Extension("workctl", 1); err == nil || !strings.Contains(err.Error(), "extensions.workctl.schema_version 2, but this release reads only up to 1") {
+	if ok, err := cfg.DecodeExtension("example-tool", 3, &third); err != nil || !ok || third.Color != "blue" {
+		t.Errorf("example-tool: %+v, %v, %v", third, ok, err)
+	}
+	if got := cfg.ExtensionNames(); !slices.Equal(got, []string{"example-tool", "workctl"}) {
+		t.Errorf("ExtensionNames = %q", got)
+	}
+	if ok, err := cfg.DecodeExtension("missing", 1, &w); err != nil || ok {
+		t.Errorf("missing: %v, %v", ok, err)
+	}
+	if _, err := cfg.DecodeExtension("workctl", 1, &w); err == nil || !strings.Contains(err.Error(), "extensions.workctl.schema_version 2, but this release reads only up to 1") {
 		t.Errorf("too new: %v", err)
 	}
-	cfg, err = Unmarshal([]byte("schema_version: 1\nextensions:\n  workctl: {schema_version: 1, bogus: 1}\n"))
-	if err != nil {
-		t.Fatal(err)
-	}
-	if _, _, err := cfg.Extension("workctl", 1); err == nil || !strings.Contains(err.Error(), "invalid extensions.workctl") {
+	if _, err := cfg.DecodeExtension("example-tool", 3, &w); err == nil || !strings.Contains(err.Error(), "invalid extensions.example-tool") {
 		t.Errorf("unknown key: %v", err)
+	}
+	for in, wantErr := range map[string]string{
+		"workctl: 1":                    "extensions.workctl must be a mapping",
+		"workctl:":                      "extensions.workctl must be a mapping",
+		"workctl: {}":                   "no extensions.workctl.schema_version",
+		"workctl: {schema_version: -2}": "invalid extensions.workctl.schema_version -2",
+		"workctl: {schema_version: x}":  "invalid extensions.workctl",
+	} {
+		cfg, err := Unmarshal([]byte("schema_version: 1\nextensions:\n  " + in + "\n"))
+		if err != nil {
+			t.Fatalf("%q: %v", in, err)
+		}
+		if _, err := cfg.DecodeExtension("workctl", 1, &w); err == nil || !strings.Contains(err.Error(), wantErr) {
+			t.Errorf("%q: got %v, want error containing %q", in, err, wantErr)
+		}
+	}
+}
+
+func TestCheckName(t *testing.T) {
+	for _, name := range []string{"workctl", "example-tool", "a.b_c-1", "x"} {
+		if err := CheckName(name); err != nil {
+			t.Errorf("%q: %v", name, err)
+		}
+	}
+	for _, name := range []string{"", "Workctl", "-x", "x-", "a..b", "a b", "a/b", "brainctl"} {
+		if err := CheckName(name); err == nil {
+			t.Errorf("%q: accepted", name)
+		}
+	}
+}
+
+func TestAddExtensionChecksArguments(t *testing.T) {
+	const content = "schema_version: 1\n"
+	path := writeConfig(t, content)
+	if _, err := AddExtension(path, "Bad Name", 1); err == nil {
+		t.Error("accepted a bad name")
+	}
+	if _, err := AddExtension(path, "workctl", 0); err == nil {
+		t.Error("accepted schema version 0")
+	}
+	if got := readFile(t, path); got != content {
+		t.Errorf("file changed to %q", got)
+	}
+}
+
+func TestAddExtensionKeepsOtherExtensions(t *testing.T) {
+	// Another extension's settings, however odd, are kept as they are.
+	path := writeConfig(t, "schema_version: 1\nextensions:\n  other: [not, a, mapping]\n")
+	if added, err := AddExtension(path, "example-tool", 4); err != nil || !added {
+		t.Fatalf("AddExtension: %v, %v", added, err)
+	}
+	const want = "schema_version: 1\nextensions:\n  other: [not, a, mapping]\n  example-tool:\n    schema_version: 4\n"
+	if got := readFile(t, path); got != want {
+		t.Errorf("file = %q, want %q", got, want)
 	}
 }
 

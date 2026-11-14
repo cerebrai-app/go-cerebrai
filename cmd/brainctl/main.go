@@ -9,5 +9,5 @@ import (
 )
 
 func main() {
-	os.Exit(cli.Main("brainctl", os.Args[1:], os.Stdout, os.Stderr))
+	os.Exit(cli.Main(cli.Program{Name: "brainctl"}, os.Args[1:], os.Stdout, os.Stderr))
 }
