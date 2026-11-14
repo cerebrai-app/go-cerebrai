@@ -150,7 +150,7 @@ that has the preferred build; a note is printed if a newer one exists only as an
 
 // initWrites says what init does to the config file for prog, for its usage.
 func initWrites(prog Program) string {
-	path := filepath.Join(brainconfig.DirName, brainconfig.FileName)
+	path := brainconfigFile
 	if prog.ExtensionID == "" {
 		return "Writes " + path + " in the brain home ($" + brainconfig.EnvVar + ",\n" +
 			"or the current directory) if it is missing"

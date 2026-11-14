@@ -117,7 +117,6 @@ func TestBrainctlInitKeepsExistingConfig(t *testing.T) {
 
 func TestBrainctlInitStopsOnBadConfig(t *testing.T) {
 	for _, tt := range []struct{ name, content, wantErr string }{
-		{"empty", "", "empty"},
 		{"not YAML", "schema_version: [\n", "invalid config file"},
 		{"not a mapping", "- 1\n", "invalid config file"},
 		{"two documents", "schema_version: 1\n---\nschema_version: 1\n", "single YAML document"},
@@ -716,5 +715,20 @@ func TestBrainctlInitAddsNoExtension(t *testing.T) {
 	}
 	if got := brainConfig(t); got != brainOnly {
 		t.Errorf("config = %q", got)
+	}
+}
+
+// brainctl init repairs the zero-byte file an interrupted init leaves.
+func TestBrainctlInitRepairsZeroByteConfig(t *testing.T) {
+	installs := project(t)
+	writeBrainConfig(t, "")
+	if code, stderr := runProgram(brainctl, "init"); code != 0 || !strings.Contains(stderr, "Wrote ") {
+		t.Fatalf("got %d, %q", code, stderr)
+	}
+	if got := brainConfig(t); got != brainOnly {
+		t.Errorf("config = %q, want %q", got, brainOnly)
+	}
+	if *installs != 1 {
+		t.Errorf("install ran %d times, want 1", *installs)
 	}
 }

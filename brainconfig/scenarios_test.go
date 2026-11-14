@@ -4,6 +4,7 @@ import (
 	"errors"
 	"os"
 	"path/filepath"
+	"runtime"
 	"strings"
 	"testing"
 )
@@ -32,6 +33,9 @@ var badFiles = []struct{ name, content, wantErr string }{
 
 func TestInitRejectsBadFiles(t *testing.T) {
 	for _, tt := range badFiles {
+		if tt.content == "" {
+			continue // a zero-byte file is repaired: see TestInitRepairsZeroByteFile
+		}
 		t.Run(tt.name, func(t *testing.T) {
 			path := writeConfig(t, tt.content)
 			created, err := Init(path)
@@ -224,12 +228,12 @@ func TestConfigLifecycle(t *testing.T) {
 		t.Errorf("SchemaVersion = %d", cfg.SchemaVersion)
 	}
 	for _, ext := range exts {
-		if !cfg.HasExtension(ext.id) {
-			t.Errorf("HasExtension(%s) = false", ext.id)
+		if !hasExtension(cfg, ext.id) {
+			t.Errorf("extension %s has no settings", ext.id)
 		}
 	}
-	if cfg.HasExtension("com.example.other") {
-		t.Error("HasExtension(com.example.other) = true")
+	if hasExtension(cfg, "com.example.other") {
+		t.Error("extension com.example.other has settings")
 	}
 	var w workctlSettings
 	if ok, err := cfg.DecodeExtension("app.cerebrai.workctl", 1, &w); err != nil || !ok || w.SchemaVersion != 1 {
@@ -325,5 +329,85 @@ func TestUnknownTopLevelKeys(t *testing.T) {
 	want := content + "extensions:\n  app.cerebrai.workctl:\n    schema_version: 1\n    name: workctl\n    bin: workctl\n"
 	if got := readFile(t, path); got != want {
 		t.Errorf("file = %q, want %q", got, want)
+	}
+}
+
+// A zero-byte file is what an Init killed between creating and writing the
+// file leaves. Init fills it in, so the user is not stuck with it; a file
+// with only comments is not empty in this sense and is left alone.
+func TestInitRepairsZeroByteFile(t *testing.T) {
+	path := writeConfig(t, "")
+	if created, err := Init(path); err != nil || !created {
+		t.Fatalf("Init: %v, %v", created, err)
+	}
+	if got := readFile(t, path); got != brainOnly {
+		t.Errorf("file = %q, want %q", got, brainOnly)
+	}
+	if created, err := Init(path); err != nil || created {
+		t.Errorf("Init again: %v, %v", created, err)
+	}
+
+	const commentsOnly = "# my notes, nothing else yet\n"
+	path = writeConfig(t, commentsOnly)
+	if created, err := Init(path); err == nil || created || !strings.Contains(err.Error(), "config file is empty") {
+		t.Errorf("Init on comments only: %v, %v", created, err)
+	}
+	if got := readFile(t, path); got != commentsOnly {
+		t.Errorf("file changed to %q", got)
+	}
+}
+
+// Edits through a symlinked config file change the file it points to, and
+// leave the symlink in place.
+func TestEditThroughSymlink(t *testing.T) {
+	real := filepath.Join(t.TempDir(), "dotfiles", "brain.yaml")
+	if err := os.MkdirAll(filepath.Dir(real), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(real, []byte(brainOnly), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	path := Path(t.TempDir())
+	if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Symlink(real, path); err != nil {
+		t.Skipf("cannot make a symlink here: %v", err)
+	}
+	if _, err := AddExtension(path, "app.cerebrai.workctl", workctlBase); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := SetValue(path, "owner", "me"); err != nil {
+		t.Fatal(err)
+	}
+	if info, err := os.Lstat(path); err != nil || info.Mode()&os.ModeSymlink == 0 {
+		t.Errorf("the config is no longer a symlink: %v, %v", info, err)
+	}
+	const want = brainOnly + "extensions:\n  app.cerebrai.workctl:\n    schema_version: 1\n    name: workctl\n    bin: workctl\nowner: me\n"
+	if got := readFile(t, real); got != want {
+		t.Errorf("target = %q, want %q", got, want)
+	}
+	if info, err := os.Stat(real); err != nil || (info.Mode().Perm() != 0o600 && runtime.GOOS != "windows") {
+		t.Errorf("target mode: %v, %v", info, err)
+	}
+	// Nothing was left beside the symlink, nor beside the target.
+	for _, dir := range []string{filepath.Dir(path), filepath.Dir(real)} {
+		if names := dirEntries(t, dir); len(names) != 1 {
+			t.Errorf("%s holds %q", dir, names)
+		}
+	}
+}
+
+// A dangling symlink cannot be edited: there is no file to change.
+func TestEditThroughDanglingSymlink(t *testing.T) {
+	path := Path(t.TempDir())
+	if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Symlink(filepath.Join(t.TempDir(), "gone.yaml"), path); err != nil {
+		t.Skipf("cannot make a symlink here: %v", err)
+	}
+	if err := writeFile(path, []byte(brainOnly)); err == nil {
+		t.Error("writeFile wrote through a dangling symlink")
 	}
 }

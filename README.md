@@ -113,6 +113,12 @@ release (a higher `schema_version`) is an error, so `init` stops before download
 Top-level keys `brainctl` doesn't know, whether from a newer release or your own, are ignored,
 and kept when an extension edits the file.
 
+Every edit replaces the file whole, through a temporary file, so a failed write never leaves it
+half-written. The config can be a symlink, say into a dotfiles repository: edits go to the file
+it points to, and the link stays. An empty file, as an interrupted `brainctl init` can leave, is
+filled in by the next `brainctl init`. There is no lock, so run commands that change the file one
+at a time: two at the same moment can lose one change.
+
 `workctl` is an extension of `brainctl` and shares its config file. `workctl init` adds its
 settings under `extensions`, keyed by its ID `app.cerebrai.workctl`. Run `brainctl init` first:
 `workctl init` never creates the file, and fails before downloading anything if it is missing.

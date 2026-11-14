@@ -81,7 +81,7 @@ func TestAddExtension(t *testing.T) {
 			t.Errorf("%s: file = %q, want %q", tt.name, got, tt.want)
 		}
 		cfg, err := Load(path)
-		if err != nil || !cfg.HasExtension("app.cerebrai.workctl") {
+		if err != nil || !hasExtension(cfg, "app.cerebrai.workctl") {
 			t.Errorf("%s: Load: %+v, %v", tt.name, cfg, err)
 		}
 	}
@@ -264,4 +264,10 @@ func TestAddExtensionKeepsOtherExtensions(t *testing.T) {
 func addSettings(path, id string, schemaVersion int) (bool, error) {
 	added, err := AddExtension(path, id, ExtensionBase{SchemaVersion: schemaVersion})
 	return slices.Contains(added, "schema_version"), err
+}
+
+// hasExtension reports whether the extension with ID id has settings in cfg.
+func hasExtension(cfg Config, id string) bool {
+	_, ok, _ := cfg.Extension(id)
+	return ok
 }

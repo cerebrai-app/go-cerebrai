@@ -6,6 +6,7 @@ import (
 	"io"
 	"io/fs"
 	"os/exec"
+	"strings"
 	"text/tabwriter"
 
 	"github.com/cerebrai-app/go-cerebrai/brainconfig"
@@ -83,7 +84,8 @@ func listExtensions(stdout, stderr io.Writer) error {
 		ext, _, err := cfg.Extension(id)
 		switch {
 		case err != nil:
-			_, _ = fmt.Fprintf(w, "%s\t-\t-\t%v\n", id, err)
+			// One line, so a multi-line YAML error keeps the table's rows.
+			_, _ = fmt.Fprintf(w, "%s\t-\t-\t%s\n", id, strings.Join(strings.Fields(err.Error()), " "))
 		case ext.Bin == "":
 			_, _ = fmt.Fprintf(w, "%s\t%s\t-\tno bin set\n", id, orDash(ext.Name))
 		default:

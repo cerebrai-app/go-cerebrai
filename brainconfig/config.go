@@ -50,7 +50,11 @@
 // The file's own schema_version lets a later release tell an older file apart
 // and migrate it, and an older release refuses a file written by a newer one.
 // Edits through this package keep the file's comments and the order of its
-// keys, but not its blank lines, and re-indent it with two spaces.
+// keys, but not its blank lines, and re-indent it with two spaces. Each edit
+// reads the file, changes it and replaces it whole, so a failed write never
+// leaves it half-written, and a symlinked file stays a symlink. There is no
+// lock, though: two edits at the same moment, from two processes, can lose
+// one of them, so run commands that change the file one at a time.
 package brainconfig
 
 import (
@@ -169,12 +173,6 @@ func CheckBin(bin string) error {
 	return nil
 }
 
-// HasExtension reports whether the extension with ID id has settings.
-func (c Config) HasExtension(id string) bool {
-	_, ok := c.extensions[id]
-	return ok
-}
-
 // ExtensionIDs are the IDs of the extensions with settings, sorted.
 func (c Config) ExtensionIDs() []string {
 	return slices.Sorted(maps.Keys(c.extensions))
@@ -233,14 +231,13 @@ func extensionBase(id string, node *yaml.Node) (ExtensionBase, error) {
 	if err := node.Decode(&base); err != nil {
 		return ExtensionBase{}, fmt.Errorf("invalid settings for extension %s: %w", id, err)
 	}
-	for key, check := range map[string]func() error{
-		"name": func() error { return CheckName(base.Name) },
-		"bin":  func() error { return CheckBin(base.Bin) },
-	} {
-		if mappingValue(node, key) == nil {
-			continue
+	if mappingValue(node, "name") != nil {
+		if err := CheckName(base.Name); err != nil {
+			return ExtensionBase{}, fmt.Errorf("invalid settings for extension %s: %w", id, err)
 		}
-		if err := check(); err != nil {
+	}
+	if mappingValue(node, "bin") != nil {
+		if err := CheckBin(base.Bin); err != nil {
 			return ExtensionBase{}, fmt.Errorf("invalid settings for extension %s: %w", id, err)
 		}
 	}
@@ -316,6 +313,16 @@ func Init(path string) (created bool, err error) {
 	// overwritten.
 	f, err := os.OpenFile(path, os.O_WRONLY|os.O_CREATE|os.O_EXCL, 0o644)
 	if errors.Is(err, fs.ErrExist) {
+		// A zero-byte file is what an Init killed between creating the file
+		// and writing it leaves: fill it in rather than fail on it for good.
+		// Nothing is lost, and a file with any content, even only comments,
+		// is left alone.
+		if info, statErr := os.Stat(path); statErr == nil && info.Mode().IsRegular() && info.Size() == 0 {
+			if err := writeFile(path, data); err != nil {
+				return false, fmt.Errorf("writing %s: %w", path, err)
+			}
+			return true, nil
+		}
 		_, err := Load(path)
 		return false, err
 	}
@@ -481,6 +488,12 @@ func scalar(s string) *yaml.Node {
 // writes a temporary file and renames it over path, so a failure never leaves
 // a half-written config.
 func writeFile(path string, data []byte) error {
+	// Write beside the real file, so that a symlinked config, say into a
+	// dotfiles repository, stays a symlink and its target gets the change.
+	path, err := filepath.EvalSymlinks(path)
+	if err != nil {
+		return err
+	}
 	info, err := os.Stat(path)
 	if err != nil {
 		return err

@@ -73,6 +73,7 @@ func TestExtensionsList(t *testing.T) {
 		"  com.example.badname: {schema_version: 1, name: '', bin: workctl}\n"+
 		"  com.example.badbin: {schema_version: 1, bin: a/b}\n"+
 		"  com.example.broken: not a mapping\n"+
+		"  com.example.multiline: {schema_version: 1, name: [a, b]}\n"+
 		"  com.example.newer: {schema_version: 99, bin: workctl}\n",
 		toolPath, missingAbs))
 	want := [][]string{
@@ -83,6 +84,7 @@ func TestExtensionsList(t *testing.T) {
 		{"com.example.badname", "-", "-", "invalid settings for extension com.example.badname: invalid name: empty"},
 		{"com.example.broken", "-", "-", "invalid config file: the settings for extension com.example.broken must be a mapping"},
 		{"com.example.gone", "-", missingAbs, "not found"},
+		{"com.example.multiline", "-", "-", "invalid settings for extension com.example.multiline: yaml: unmarshal errors: line 11: cannot unmarshal !!seq into string"},
 		{"com.example.newer", "-", "workctl", workctlPath},
 		{"com.example.nobin", "No Bin", "-", "no bin set"},
 		{"com.example.tool", "Example Tool", toolPath, toolPath},
