@@ -11,9 +11,10 @@ import (
 // file, a temporary file, or a changed original behind.
 
 // longName is a file name that is valid on its own, but too long once
-// writeFile turns it into a temporary file name (".<name>.<random>.tmp"):
-// file systems limit a name to 255 bytes.
-var longName = strings.Repeat("c", 240)
+// writeFile turns it into a temporary file name: file systems limit a name to
+// 255 bytes, and ".<name>.<random>.tmp" adds at least 7 (the random part is 1
+// to 10 digits), so 250 is over the limit whatever the random part is.
+var longName = strings.Repeat("c", 250)
 
 // dirEntries are the names in dir.
 func dirEntries(t *testing.T, dir string) []string {
