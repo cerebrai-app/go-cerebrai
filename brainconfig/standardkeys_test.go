@@ -297,3 +297,25 @@ func TestStandardKeysTogether(t *testing.T) {
 		}
 	}
 }
+
+// extensions: *anchor reads as the mapping it refers to. Adding settings
+// would replace the alias and drop the other extensions', so it is refused
+// and the file left as it is.
+func TestAddExtensionRefusesAliasedExtensions(t *testing.T) {
+	const content = "schema_version: 1\nshared: &shared\n  com.example.tool: {schema_version: 3, name: Tool}\nextensions: *shared\n"
+	path := writeConfig(t, content)
+	cfg, err := Load(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if ext, ok, err := cfg.Extension("com.example.tool"); err != nil || !ok || ext.Name != "Tool" {
+		t.Fatalf("Extension through the alias: %+v, %v, %v", ext, ok, err)
+	}
+	added, err := AddExtension(path, "app.cerebrai.workctl", workctlBase)
+	if err == nil || len(added) != 0 || !strings.Contains(err.Error(), "extensions refers to another value (a YAML alias)") {
+		t.Errorf("AddExtension: %q, %v", added, err)
+	}
+	if got := readFile(t, path); got != content {
+		t.Errorf("file changed to %q", got)
+	}
+}

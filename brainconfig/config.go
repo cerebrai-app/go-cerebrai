@@ -408,9 +408,15 @@ func AddExtension(path, id string, want ExtensionBase) (added []string, err erro
 
 	err = editConfig(path, data, func(root *yaml.Node) error {
 		exts := mappingValue(root, "extensions")
-		if exts == nil {
+		switch {
+		case exts == nil:
 			exts = &yaml.Node{}
 			root.Content = append(root.Content, scalar("extensions"), exts)
+		case exts.Kind == yaml.AliasNode:
+			// extensions: *anchor reads as the mapping it refers to, but
+			// replacing it to add a key would drop everything in it.
+			return errors.New("extensions refers to another value (a YAML alias), so settings cannot be added to it: " +
+				"write the mapping out in place")
 		}
 		makeBlock(exts, yaml.MappingNode, "!!map")
 		ext := mappingValue(exts, id)
@@ -506,6 +512,11 @@ func writeFile(path string, data []byte) error {
 	_, err = f.Write(data)
 	if err == nil {
 		err = f.Chmod(info.Mode().Perm())
+	}
+	if err == nil {
+		// On disk before the rename, so a crash cannot leave the new name on
+		// a file whose content was never written.
+		err = f.Sync()
 	}
 	if closeErr := f.Close(); err == nil {
 		err = closeErr
