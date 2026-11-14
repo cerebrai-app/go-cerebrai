@@ -3,6 +3,8 @@ package cli
 import (
 	"errors"
 	"io"
+	"os"
+	"path/filepath"
 	"strings"
 	"testing"
 
@@ -39,8 +41,11 @@ func TestUsageErrors(t *testing.T) {
 	}
 }
 
+// stubInstall replaces install and runs the test in an empty current
+// directory, so init's config file goes there.
 func stubInstall(t *testing.T, err error) *python.Options {
 	t.Helper()
+	t.Chdir(t.TempDir())
 	var got python.Options
 	old := install
 	t.Cleanup(func() { install = old })
@@ -75,8 +80,42 @@ func TestInitPassesOptions(t *testing.T) {
 func TestInitReportsInstallErrors(t *testing.T) {
 	stubInstall(t, errors.New("no network"))
 	code, stdout, stderr := run("init")
-	if code != 1 || stdout != "" || stderr != "error: no network\n" {
+	if code != 1 || stdout != "" || !strings.HasSuffix(stderr, "\nerror: no network\n") {
 		t.Errorf("got %d, %q, %q", code, stdout, stderr)
+	}
+}
+
+func TestInitWritesConfig(t *testing.T) {
+	stubInstall(t, nil)
+	code, _, stderr := run("init")
+	if code != 0 || !strings.Contains(stderr, "Wrote ") {
+		t.Fatalf("got %d, %q", code, stderr)
+	}
+	data, err := os.ReadFile(filepath.Join(".brain", "config.yaml"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if string(data) != "schema_version: 1\n" {
+		t.Errorf("config = %q", data)
+	}
+	// A second run keeps the file.
+	if code, _, stderr := run("init"); code != 0 || !strings.Contains(stderr, "Using existing ") {
+		t.Errorf("second run: got %d, %q", code, stderr)
+	}
+}
+
+func TestInitStopsOnBadConfig(t *testing.T) {
+	stubInstall(t, nil)
+	installed := false
+	install = func(python.Options) (string, error) { installed = true; return "", nil }
+	if err := os.Mkdir(".brain", 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(".brain", "config.yaml"), []byte("schema_version: 99\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if code, _, stderr := run("init"); code != 1 || !strings.HasPrefix(stderr, "error: ") || installed {
+		t.Errorf("got %d, %q, installed %v", code, stderr, installed)
 	}
 }
 

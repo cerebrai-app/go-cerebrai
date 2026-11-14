@@ -11,6 +11,7 @@ They replace the Rust [brainctl](https://github.com/cerebrai-app/brainctl) and
 | --- | --- |
 | [`cmd/brainctl`](cmd/brainctl), [`cmd/workctl`](cmd/workctl) | the two programs; each only calls `cli.Main` with its name |
 | [`internal/cli`](internal/cli) | the command line both programs share: `version` and `init` |
+| [`internal/config`](internal/config) | reads and writes the project config file, `.brain/config.yaml` (`.work/config.yaml` for `workctl`) |
 | [`internal/python`](internal/python) | downloads, verifies and unpacks [python-build-standalone](https://github.com/astral-sh/python-build-standalone) distributions (the port of the `cerebrai-python` crate) |
 | [`internal/buildinfo`](internal/buildinfo) | `buildinfo.Version()`: the version the release links in from the tag, else the module version from `go install`, else `dev` |
 
@@ -79,7 +80,19 @@ brainctl init --variant pgo+lto            # exact build options, no fallback
 
 ### `init`
 
-Downloads a [python-build-standalone](https://github.com/astral-sh/python-build-standalone)
+First, `init` writes a config file to `.brain/config.yaml` in the current directory
+(`.work/config.yaml` for `workctl`), creating the directory if needed:
+
+```yaml
+schema_version: 1
+```
+
+`schema_version` is the file's format. If the file already exists, `init` leaves it unchanged but
+checks that it is valid YAML with only known keys and a `schema_version` this release supports. A
+file from a newer release (a higher `schema_version`) is an error, so `init` stops before
+downloading anything.
+
+Then it downloads a [python-build-standalone](https://github.com/astral-sh/python-build-standalone)
 distribution to `<data dir>/python-build-standalone/<version>+<build options>/` (for example
 `3.14.10+freethreaded+pgo+lto`). The data dir is `$XDG_DATA_HOME` if set to an absolute path,
 otherwise `%LOCALAPPDATA%` on Windows and `~/.local/share` elsewhere. It does nothing if the

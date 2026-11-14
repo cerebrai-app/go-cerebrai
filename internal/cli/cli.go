@@ -7,8 +7,11 @@ import (
 	"flag"
 	"fmt"
 	"io"
+	"os"
+	"path/filepath"
 
 	"github.com/cerebrai-app/go-cerebrai/internal/buildinfo"
+	"github.com/cerebrai-app/go-cerebrai/internal/config"
 	"github.com/cerebrai-app/go-cerebrai/internal/python"
 )
 
@@ -23,10 +26,11 @@ func Main(name string, args []string, stdout, stderr io.Writer) int {
 
 commands:
   version   print the %[1]s version
-  init      set up the local environment (downloads a python-build-standalone distribution)
+  init      set up the current directory (writes .%[2]s/config.yaml) and the local
+            environment (downloads a python-build-standalone distribution)
 
 Run "%[1]s init -h" for the flags of init.
-`, name)
+`, name, config.DirName(name)[1:])
 	}
 	if len(args) == 0 {
 		usage()
@@ -67,7 +71,9 @@ that has the preferred build; a note is printed if a newer one exists only as an
 (default `+python.DefaultVariant+`, falling back to the best available build)`)
 	fs.Usage = func() {
 		_, _ = fmt.Fprintf(stderr, "usage: %s init [flags]\n\n"+
-			"Downloads a python-build-standalone distribution into the data directory.\n\nflags:\n", name)
+			"Writes %s in the current directory if it is missing, then downloads a\n"+
+			"python-build-standalone distribution into the data directory.\n\nflags:\n",
+			name, filepath.Join(config.DirName(name), config.FileName))
 		fs.PrintDefaults()
 	}
 	if err := fs.Parse(args); err != nil {
@@ -80,6 +86,24 @@ that has the preferred build; a note is printed if a newer one exists only as an
 		_, _ = fmt.Fprintf(stderr, "%s init: unexpected arguments %q\n", name, fs.Args())
 		fs.Usage()
 		return 2
+	}
+	// The config comes first: it is quick and needs no network, so a directory
+	// that cannot be written fails before the download.
+	dir, err := os.Getwd()
+	if err != nil {
+		_, _ = fmt.Fprintf(stderr, "error: %v\n", err)
+		return 1
+	}
+	path := config.Path(dir, name)
+	_, created, err := config.Init(path)
+	if err != nil {
+		_, _ = fmt.Fprintf(stderr, "error: %v\n", err)
+		return 1
+	}
+	if created {
+		_, _ = fmt.Fprintf(stderr, "Wrote %s\n", path)
+	} else {
+		_, _ = fmt.Fprintf(stderr, "Using existing %s\n", path)
 	}
 	if _, err := install(opts); err != nil {
 		_, _ = fmt.Fprintf(stderr, "error: %v\n", err)
