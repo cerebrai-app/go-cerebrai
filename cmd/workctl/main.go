@@ -8,7 +8,8 @@ import (
 	"github.com/cerebrai-app/go-cerebrai/internal/cli"
 )
 
-// extensionID is workctl's key under extensions in the brain config file.
+// extensionID is workctl's key under extensions in the brain config file:
+// the reverse of the project's domain, cerebrai.app, followed by its name.
 const extensionID = "app.cerebrai.workctl"
 
 // extensionSchemaVersion is the newest format of workctl's settings in the

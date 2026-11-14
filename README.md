@@ -149,8 +149,8 @@ Any program can be an extension of `brainctl`, without changes to `brainctl`: it
 under `extensions` in `.brain/config.yaml`. The rules:
 
 - **ID.** The key is the extension's ID: a reverse domain name for a domain its author controls,
-  followed by the extension's name, so two authors never pick the same key. `workctl` is
-  `app.cerebrai.workctl`; a tool from `example.com` would be
+  followed by the extension's name, so two authors never pick the same key. `workctl`, from
+  `cerebrai.app`, is `app.cerebrai.workctl`; a tool from `example.com` would be
   `com.example.tool`, and one without a domain can use its code host, as in
   `io.github.some-user.tool`. An ID has at least three labels separated by dots, each of lower case
   letters and digits with single hyphens between them.

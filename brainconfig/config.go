@@ -99,7 +99,7 @@ var validID = regexp.MustCompile(`^` + label + `(\.` + label + `){2,}$`)
 
 // CheckID returns an error if id cannot be an extension ID. An ID is a
 // reverse domain name followed by the extension's name, such as
-// app.cerebrai.workctl for workctl: three or more labels
+// app.cerebrai.workctl for workctl, from cerebrai.app: three or more labels
 // separated by dots, each of lower case letters and digits with single
 // hyphens between them.
 func CheckID(id string) error {
