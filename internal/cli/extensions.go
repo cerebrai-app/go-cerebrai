@@ -18,9 +18,9 @@ var lookPath = exec.LookPath
 const extensionsUsage = `usage: %[1]s extensions <command>
 
 commands:
-  l, ls, list   list the extension executables in extension_bins in %[2]s,
-                with where each is found: on PATH for a bare name, or at
-                its absolute path
+  l, ls, list   list the extensions with settings in %[2]s, each with
+                its bin and where that is found: on PATH for a bare name,
+                or at its absolute path
 
 The brain home is $%[3]s if set, otherwise the current directory.
 `
@@ -56,10 +56,12 @@ func runExtensions(name string, args []string, stdout, stderr io.Writer) int {
 	return 2
 }
 
-// listExtensions writes a table of the extension executables in the brain
-// config to stdout: each entry and where it is found, or "not found". An
-// entry that is not installed is reported, not an error: the list is the
-// same file on every machine, and not every machine has every extension.
+// listExtensions writes a table of the extensions in the brain config to
+// stdout: each one's ID, its bin, and where that is found, or why not. An
+// extension whose bin is missing, bad or not installed is reported in its
+// row, not as an error: the list is the same file on every machine, not every
+// machine has every extension, and one broken extension must not hide the
+// others.
 func listExtensions(stdout, stderr io.Writer) error {
 	dir, err := brainconfig.Home()
 	if err != nil {
@@ -70,20 +72,28 @@ func listExtensions(stdout, stderr io.Writer) error {
 	if err != nil {
 		return err
 	}
-	bins := cfg.ExtensionBins()
-	if len(bins) == 0 {
-		_, _ = fmt.Fprintf(stderr, "No extensions are listed in extension_bins in %s\n", path)
+	ids := cfg.ExtensionIDs()
+	if len(ids) == 0 {
+		_, _ = fmt.Fprintf(stderr, "No extensions have settings in %s\n", path)
 		return nil
 	}
 	w := tabwriter.NewWriter(stdout, 0, 0, 2, ' ', 0)
-	_, _ = fmt.Fprintln(w, "NAME\tPATH")
-	for _, bin := range bins {
-		_, _ = fmt.Fprintf(w, "%s\t%s\n", bin, where(bin))
+	_, _ = fmt.Fprintln(w, "EXTENSION\tBIN\tPATH")
+	for _, id := range ids {
+		bin, err := cfg.ExtensionBin(id)
+		switch {
+		case err != nil:
+			_, _ = fmt.Fprintf(w, "%s\t-\t%v\n", id, err)
+		case bin == "":
+			_, _ = fmt.Fprintf(w, "%s\t-\tno bin set\n", id)
+		default:
+			_, _ = fmt.Fprintf(w, "%s\t%s\t%s\n", id, bin, where(bin))
+		}
 	}
 	return w.Flush()
 }
 
-// where says where the extension_bins entry bin is found: the executable's
+// where says where an extension's bin is found: the executable's
 // path, "not found", or why it cannot be used.
 func where(bin string) string {
 	found, err := lookPath(bin)

@@ -6,6 +6,8 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"reflect"
+	"regexp"
 	"runtime"
 	"strings"
 	"testing"
@@ -43,26 +45,53 @@ func runBrainctl(args ...string) (int, string, string) {
 	return code, out.String(), errOut.String()
 }
 
+// rows splits the table brainctl extensions ls printed into its rows'
+// columns, which are separated by two or more spaces.
+func rows(t *testing.T, table string) [][]string {
+	t.Helper()
+	var rows [][]string
+	for _, line := range strings.Split(strings.TrimSuffix(table, "\n"), "\n") {
+		rows = append(rows, columnGap.Split(strings.TrimRight(line, " "), -1))
+	}
+	return rows
+}
+
+var columnGap = regexp.MustCompile(` {2,}`)
+
 func TestExtensionsList(t *testing.T) {
 	project(t)
 	bin := binDir(t)
 	workctlPath := fakeBin(t, bin, "workctl")
 	toolPath := fakeBin(t, t.TempDir(), "tool")
 	missingAbs := filepath.Join(t.TempDir(), "gone")
-	writeBrainConfig(t, fmt.Sprintf("schema_version: 1\nextension_bins:\n  - workctl\n  - %q\n  - not-installed\n  - %q\n",
+	writeBrainConfig(t, fmt.Sprintf("schema_version: 1\nextensions:\n"+
+		"  app.cerebrai.workctl: {schema_version: 1, bin: workctl}\n"+
+		"  com.example.tool: {schema_version: 3, bin: %q, color: blue}\n"+
+		"  com.example.absent: {schema_version: 1, bin: not-installed}\n"+
+		"  com.example.gone: {schema_version: 1, bin: %q}\n"+
+		"  com.example.nobin: {schema_version: 1}\n"+
+		"  com.example.badbin: {schema_version: 1, bin: a/b}\n"+
+		"  com.example.broken: not a mapping\n"+
+		"  com.example.newer: {schema_version: 99, bin: workctl}\n",
 		toolPath, missingAbs))
-	want := "NAME" + strings.Repeat(" ", len(missingAbs)-4+2) + "PATH\n" +
-		"workctl" + strings.Repeat(" ", len(missingAbs)-7+2) + workctlPath + "\n" +
-		toolPath + strings.Repeat(" ", len(missingAbs)-len(toolPath)+2) + toolPath + "\n" +
-		"not-installed" + strings.Repeat(" ", len(missingAbs)-13+2) + "not found\n" +
-		missingAbs + "  not found\n"
+	want := [][]string{
+		{"EXTENSION", "BIN", "PATH"},
+		{"app.cerebrai.workctl", "workctl", workctlPath},
+		{"com.example.absent", "not-installed", "not found"},
+		{"com.example.badbin", "-", `invalid settings for extension com.example.badbin: invalid bin "a/b": use a bare executable name or an absolute path`},
+		{"com.example.broken", "-", "invalid config file: the settings for extension com.example.broken must be a mapping"},
+		{"com.example.gone", missingAbs, "not found"},
+		{"com.example.newer", "workctl", workctlPath},
+		{"com.example.nobin", "-", "no bin set"},
+		{"com.example.tool", toolPath, toolPath},
+	}
 	for _, alias := range []string{"l", "ls", "list"} {
 		code, stdout, stderr := runBrainctl("extensions", alias)
 		if code != 0 || stderr != "" {
 			t.Errorf("%s: got %d, stderr %q", alias, code, stderr)
 		}
-		if stdout != want {
-			t.Errorf("%s: stdout =\n%s\nwant\n%s", alias, stdout, want)
+		if got := rows(t, stdout); !reflect.DeepEqual(got, want) {
+			t.Errorf("%s: rows =\n%q\nwant\n%q", alias, got, want)
 		}
 	}
 }
@@ -76,7 +105,7 @@ func TestExtensionsListAfterInit(t *testing.T) {
 		}
 	}
 	code, stdout, stderr := runBrainctl("extensions", "ls")
-	if want := "NAME     PATH\nworkctl  " + workctlPath + "\n"; code != 0 || stdout != want || stderr != "" {
+	if want := "EXTENSION             BIN      PATH\napp.cerebrai.workctl  workctl  " + workctlPath + "\n"; code != 0 || stdout != want || stderr != "" {
 		t.Errorf("got %d, %q, %q; want stdout %q", code, stdout, stderr, want)
 	}
 }
@@ -88,7 +117,7 @@ func TestExtensionsListUsesBrainHome(t *testing.T) {
 	if err := os.MkdirAll(filepath.Join(brain, ".brain"), 0o755); err != nil {
 		t.Fatal(err)
 	}
-	if err := os.WriteFile(brainconfig.Path(brain), []byte("schema_version: 1\nextension_bins: [workctl]\n"), 0o644); err != nil {
+	if err := os.WriteFile(brainconfig.Path(brain), []byte(withWorkctl), 0o644); err != nil {
 		t.Fatal(err)
 	}
 	if code, stdout, stderr := runBrainctl("extensions", "ls"); code != 0 || !strings.Contains(stdout, workctlPath) {
@@ -97,11 +126,11 @@ func TestExtensionsListUsesBrainHome(t *testing.T) {
 }
 
 func TestExtensionsListEmpty(t *testing.T) {
-	for _, content := range []string{brainOnly, "schema_version: 1\nextension_bins: []\n", withWorkctl[:strings.Index(withWorkctl, "extension_bins")]} {
+	for _, content := range []string{brainOnly, "schema_version: 1\nextensions:\n", "schema_version: 1\nextensions: {}\n"} {
 		project(t)
 		writeBrainConfig(t, content)
 		code, stdout, stderr := runBrainctl("extensions", "ls")
-		if code != 0 || stdout != "" || !strings.Contains(stderr, "No extensions are listed in extension_bins in ") {
+		if code != 0 || stdout != "" || !strings.Contains(stderr, "No extensions have settings in ") {
 			t.Errorf("%q: got %d, %q, %q", content, code, stdout, stderr)
 		}
 	}
@@ -113,7 +142,7 @@ func TestExtensionsListConfigErrors(t *testing.T) {
 	}{
 		{"no config", "", "run brainctl init first"},
 		{"newer config", "schema_version: 2\n", "upgrade to a newer release"},
-		{"bad extension_bins", "schema_version: 1\nextension_bins: [a, a]\n", "listed twice"},
+		{"extensions not a mapping", "schema_version: 1\nextensions: [a]\n", "invalid config file"},
 	} {
 		t.Run(tt.name, func(t *testing.T) {
 			project(t)
@@ -133,14 +162,14 @@ func TestExtensionsListConfigErrors(t *testing.T) {
 	}
 }
 
-// An entry that is not installed is listed, not an error: the same file is
-// on every machine, and not every machine has every extension.
+// An extension that is not installed is listed, not an error: the same file
+// is on every machine, and not every machine has every extension.
 func TestExtensionsListNothingInstalled(t *testing.T) {
 	project(t)
 	binDir(t)
 	writeBrainConfig(t, withWorkctl)
 	code, stdout, _ := runBrainctl("extensions", "ls")
-	if code != 0 || stdout != "NAME     PATH\nworkctl  not found\n" {
+	if want := [][]string{{"EXTENSION", "BIN", "PATH"}, {"app.cerebrai.workctl", "workctl", "not found"}}; code != 0 || !reflect.DeepEqual(rows(t, stdout), want) {
 		t.Errorf("got %d, %q", code, stdout)
 	}
 }
@@ -155,7 +184,7 @@ func TestExtensionsListNotExecutable(t *testing.T) {
 	if err := os.WriteFile(file, nil, 0o644); err != nil {
 		t.Fatal(err)
 	}
-	writeBrainConfig(t, fmt.Sprintf("schema_version: 1\nextension_bins: [%q]\n", file))
+	writeBrainConfig(t, fmt.Sprintf("schema_version: 1\nextensions:\n  com.example.tool: {schema_version: 1, bin: %q}\n", file))
 	if code, stdout, _ := runBrainctl("extensions", "ls"); code != 0 || !strings.HasSuffix(stdout, "  not executable\n") {
 		t.Errorf("got %d, %q", code, stdout)
 	}
@@ -204,7 +233,7 @@ func TestExtensionsUsage(t *testing.T) {
 			t.Errorf("%q: got %d, %q, %q", args, code, stdout, stderr)
 		}
 	}
-	if _, _, stderr := runBrainctl("help"); !strings.Contains(stderr, "extensions  list the extension executables") {
+	if _, _, stderr := runBrainctl("help"); !strings.Contains(stderr, "extensions  list the extensions in the brain config") {
 		t.Errorf("brainctl help does not mention extensions:\n%s", stderr)
 	}
 }

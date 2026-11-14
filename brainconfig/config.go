@@ -9,17 +9,17 @@
 //	extensions:
 //	  app.cerebrai.workctl:
 //	    schema_version: 1
+//	    bin: workctl
 //	  com.example.tool:
 //	    schema_version: 3
+//	    bin: /opt/example/bin/tool
 //	    anything: the extension likes
-//	extension_bins:
-//	  - workctl
-//	  - /opt/example/bin/tool
 //
-// extension_bins lists the extension executables brainctl can discover: each
-// is a bare name, looked up on PATH, or an absolute path (see CheckBin). A
-// bare name suits a file that is committed or backed up, since it does not
-// tie the file to one machine's layout.
+// Two keys in an extension's settings are standard, and ExtensionBase holds
+// them: schema_version, and bin, the extension's executable, which brainctl
+// can discover. bin is a bare name, looked up on PATH, or an absolute path
+// (see CheckBin); a bare name suits a file that is committed or backed up,
+// since it does not tie the file to one machine's layout.
 //
 // The rules every extension follows, whether it uses this package or edits
 // the YAML itself:
@@ -30,18 +30,18 @@
 //     never pick the same key. See CheckID for the exact form.
 //   - Its settings are a mapping holding schema_version: a positive integer
 //     that the extension numbers on its own, independently of the file's.
-//   - It lists its executable in extension_bins, with AddExtensionBin.
-//   - It changes nothing else: not the other top-level keys, not other
-//     extensions or their entries in extension_bins, and it keeps unknown
-//     content as it is.
+//   - Its settings hold bin, its executable, with AddExtensionBin, unless
+//     the user has set one already.
+//   - It changes nothing outside its own settings: not the top-level keys,
+//     not other extensions, and it keeps unknown content as it is.
 //   - It refuses settings with a schema_version newer than it reads, instead
 //     of misreading them.
 //
 // brainctl in turn checks only the top level: a schema_version it reads, no
-// top-level keys it does not know, extensions being a mapping, and
-// extension_bins being a list of distinct valid entries. It never
-// looks inside an extension's settings, so a broken or newer extension can
-// never stop brainctl.
+// top-level keys it does not know, and extensions being a mapping. Reading
+// the file never looks inside an extension's settings, so a broken or newer
+// extension can never stop brainctl; listing extensions reads each one's bin
+// with Config.ExtensionBin and reports a bad one for that extension alone.
 //
 // The file's own schema_version lets a later release tell an older file apart
 // and migrate it, and an older release refuses a file written by a newer one.
@@ -88,24 +88,45 @@ type Config struct {
 	// package does not look inside them when it reads the file: an extension
 	// reads its own with DecodeExtension.
 	extensions map[string]yaml.Node
-	// bins is extension_bins, in the file's order.
-	bins []string
 }
 
 // file is the YAML shape of Config.
 type file struct {
 	SchemaVersion int                  `yaml:"schema_version"`
 	Extensions    map[string]yaml.Node `yaml:"extensions,omitempty"`
-	ExtensionBins []string             `yaml:"extension_bins,omitempty"`
 }
 
-// ExtensionBins are the extension executables listed in extension_bins, in
-// the file's order: bare names to look up on PATH, or absolute paths.
-func (c Config) ExtensionBins() []string {
-	return slices.Clone(c.bins)
+// ExtensionBase holds the standard keys of an extension's settings. An
+// extension embeds it in the type it decodes its settings into, so that
+// DecodeExtension, which rejects unknown keys, accepts them:
+//
+//	type settings struct {
+//		brainconfig.ExtensionBase `yaml:",inline"`
+//		Color string `yaml:"color"`
+//	}
+type ExtensionBase struct {
+	// SchemaVersion is the format of the extension's settings. Each
+	// extension numbers its own formats, independently of the file's.
+	SchemaVersion int `yaml:"schema_version"`
+	// Bin is the extension's executable, which brainctl can discover: a bare
+	// name, looked up on PATH, or an absolute path. Empty if not set.
+	Bin string `yaml:"bin,omitempty"`
 }
 
-// CheckBin returns an error if bin cannot be listed in extension_bins: it
+// ExtensionBin is the bin of the extension with ID id: "" if the extension
+// has no settings or they set no bin, and an error if its settings are not a
+// mapping or bin is not one CheckBin accepts. The schema_version is not
+// checked: brainctl lists extensions whatever their format.
+func (c Config) ExtensionBin(id string) (string, error) {
+	node, ok := c.extensions[id]
+	if !ok {
+		return "", nil
+	}
+	base, err := extensionBase(id, &node)
+	return base.Bin, err
+}
+
+// CheckBin returns an error if bin cannot be an extension's executable: it
 // must be a bare executable name, looked up on PATH, or an absolute path. A
 // relative path with a directory in it would depend on the current directory.
 // Absolute means absolute on this platform, or rooted at "/": the file may be
@@ -113,13 +134,13 @@ func (c Config) ExtensionBins() []string {
 func CheckBin(bin string) error {
 	switch {
 	case strings.TrimSpace(bin) == "":
-		return errors.New("invalid extension_bins entry: empty")
+		return errors.New("invalid bin: empty")
 	case bin != strings.TrimSpace(bin):
-		return fmt.Errorf("invalid extension_bins entry %q: leading or trailing space", bin)
+		return fmt.Errorf("invalid bin %q: leading or trailing space", bin)
 	case filepath.IsAbs(bin) || path.IsAbs(bin):
 		return nil
 	case bin == "." || bin == ".." || strings.ContainsAny(bin, `/\`):
-		return fmt.Errorf("invalid extension_bins entry %q: use a bare executable name or an absolute path", bin)
+		return fmt.Errorf("invalid bin %q: use a bare executable name or an absolute path", bin)
 	}
 	return nil
 }
@@ -156,17 +177,17 @@ func CheckID(id string) error {
 }
 
 // DecodeExtension decodes the settings of the extension with ID id into v,
-// normally a pointer to a struct with a SchemaVersion field tagged
-// `yaml:"schema_version"`. schemaVersion is the newest format the caller
-// reads: settings without a schema_version, with a newer one, or with keys
-// that v has no field for are an error. ok is false, and v is untouched, if
+// normally a pointer to a struct that embeds ExtensionBase inline.
+// schemaVersion is the newest format the caller reads: settings without a
+// schema_version, with a newer one, with a bad bin, or with keys that v has
+// no field for are an error. ok is false, and v is untouched, if
 // the extension has no settings.
 func (c Config) DecodeExtension(id string, schemaVersion int, v any) (ok bool, err error) {
 	node, ok := c.extensions[id]
 	if !ok {
 		return false, nil
 	}
-	if _, err := extensionSchemaVersion(id, &node, schemaVersion); err != nil {
+	if _, err := extensionHeader(id, &node, schemaVersion); err != nil {
 		return true, err
 	}
 	// yaml.Node.Decode cannot reject unknown keys, so go through a Decoder.
@@ -182,22 +203,35 @@ func (c Config) DecodeExtension(id string, schemaVersion int, v any) (ok bool, e
 	return true, nil
 }
 
-// extensionSchemaVersion is the schema_version of the extension settings in
-// node, checked to be a mapping with a version from 1 to newest.
-func extensionSchemaVersion(id string, node *yaml.Node, newest int) (int, error) {
+// extensionBase reads the standard keys of the extension settings in node,
+// checking that they are a mapping and that bin, if there, is valid.
+func extensionBase(id string, node *yaml.Node) (ExtensionBase, error) {
 	if node.Kind != yaml.MappingNode {
-		return 0, fmt.Errorf("invalid config file: the settings for extension %s must be a mapping", id)
+		return ExtensionBase{}, fmt.Errorf("invalid config file: the settings for extension %s must be a mapping", id)
 	}
-	var ext struct {
-		SchemaVersion int `yaml:"schema_version"`
+	var base ExtensionBase
+	if err := node.Decode(&base); err != nil {
+		return ExtensionBase{}, fmt.Errorf("invalid settings for extension %s: %w", id, err)
 	}
-	if err := node.Decode(&ext); err != nil {
-		return 0, fmt.Errorf("invalid settings for extension %s: %w", id, err)
+	if mappingValue(node, "bin") != nil {
+		if err := CheckBin(base.Bin); err != nil {
+			return ExtensionBase{}, fmt.Errorf("invalid settings for extension %s: %w", id, err)
+		}
 	}
-	if err := checkSchemaVersion(" for extension "+id, ext.SchemaVersion, newest); err != nil {
-		return 0, err
+	return base, nil
+}
+
+// extensionHeader is extensionBase, also checking that schema_version is
+// from 1 to newest.
+func extensionHeader(id string, node *yaml.Node, newest int) (ExtensionBase, error) {
+	base, err := extensionBase(id, node)
+	if err != nil {
+		return ExtensionBase{}, err
 	}
-	return ext.SchemaVersion, nil
+	if err := checkSchemaVersion(" for extension "+id, base.SchemaVersion, newest); err != nil {
+		return ExtensionBase{}, err
+	}
+	return base, nil
 }
 
 // checkSchemaVersion checks the schema version got against newest, the
@@ -297,7 +331,7 @@ func AddExtension(path, id string, schemaVersion int) (added bool, err error) {
 		return false, fmt.Errorf("%s: %w", path, err)
 	}
 	if node, ok := cfg.extensions[id]; ok {
-		if _, err := extensionSchemaVersion(id, &node, schemaVersion); err != nil {
+		if _, err := extensionHeader(id, &node, schemaVersion); err != nil {
 			return false, fmt.Errorf("%s: %w", path, err)
 		}
 		return false, nil
@@ -320,12 +354,17 @@ func AddExtension(path, id string, schemaVersion int) (added bool, err error) {
 	return true, nil
 }
 
-// AddExtensionBin lists bin, an extension's executable, in extension_bins in
-// the config file at path, which must exist and be valid (a missing file is
-// an ErrNoConfig error). bin is a bare name, looked up on PATH, or an absolute
-// path; see CheckBin. added is false if bin is already listed. Other content
-// and comments are kept; blank lines are not.
-func AddExtensionBin(path, bin string) (added bool, err error) {
+// AddExtensionBin sets bin, the executable of the extension with ID id, in
+// its settings in the config file at path, unless they set one already: one
+// the user wrote, say an absolute path, is never replaced. The settings must
+// exist (see AddExtension), and the file must exist and be valid (a missing
+// file is an ErrNoConfig error). bin is a bare name, looked up on PATH, or an
+// absolute path; see CheckBin. added is false if a bin was set already. Other
+// content and comments are kept; blank lines are not.
+func AddExtensionBin(path, id, bin string) (added bool, err error) {
+	if err := CheckID(id); err != nil {
+		return false, err
+	}
 	if err := CheckBin(bin); err != nil {
 		return false, err
 	}
@@ -337,17 +376,19 @@ func AddExtensionBin(path, bin string) (added bool, err error) {
 	if err != nil {
 		return false, fmt.Errorf("%s: %w", path, err)
 	}
-	if slices.Contains(cfg.bins, bin) {
+	node, ok := cfg.extensions[id]
+	if !ok {
+		return false, fmt.Errorf("%s: no settings for extension %s to set its bin in", path, id)
+	}
+	if _, err := extensionBase(id, &node); err != nil {
+		return false, fmt.Errorf("%s: %w", path, err)
+	}
+	if mappingValue(&node, "bin") != nil {
 		return false, nil
 	}
 	err = editConfig(path, data, func(root *yaml.Node) {
-		bins := mappingValue(root, "extension_bins")
-		if bins == nil {
-			bins = &yaml.Node{}
-			root.Content = append(root.Content, scalar("extension_bins"), bins)
-		}
-		makeBlock(bins, yaml.SequenceNode, "!!seq")
-		bins.Content = append(bins.Content, scalar(bin))
+		ext := mappingValue(mappingValue(root, "extensions"), id)
+		ext.Content = append(ext.Content, scalar("bin"), scalar(bin))
 	})
 	if err != nil {
 		return false, err
@@ -464,9 +505,8 @@ func Load(path string) (Config, error) {
 
 // Unmarshal decodes the config file's YAML and checks it: it must be one
 // mapping with a schema_version this release reads, no top-level keys it does
-// not know, extensions, if there, a mapping, and extension_bins, if there, a
-// list of distinct entries that CheckBin accepts. What each extension holds
-// is not checked: see DecodeExtension.
+// not know, and extensions, if there, a mapping. What each extension holds
+// is not checked: see DecodeExtension and ExtensionBin.
 func Unmarshal(data []byte) (Config, error) {
 	var f file
 	dec := yaml.NewDecoder(bytes.NewReader(data))
@@ -483,13 +523,5 @@ func Unmarshal(data []byte) (Config, error) {
 	if err := checkSchemaVersion("", f.SchemaVersion, SchemaVersion); err != nil {
 		return Config{}, err
 	}
-	for i, bin := range f.ExtensionBins {
-		if err := CheckBin(bin); err != nil {
-			return Config{}, err
-		}
-		if slices.Contains(f.ExtensionBins[:i], bin) {
-			return Config{}, fmt.Errorf("invalid config file: %q is listed twice in extension_bins", bin)
-		}
-	}
-	return Config{SchemaVersion: f.SchemaVersion, extensions: f.Extensions, bins: f.ExtensionBins}, nil
+	return Config{SchemaVersion: f.SchemaVersion, extensions: f.Extensions}, nil
 }

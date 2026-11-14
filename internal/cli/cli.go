@@ -11,7 +11,6 @@ import (
 	"fmt"
 	"io"
 	"path/filepath"
-	"strings"
 
 	"github.com/cerebrai-app/go-cerebrai/brainconfig"
 	"github.com/cerebrai-app/go-cerebrai/internal/buildinfo"
@@ -42,7 +41,7 @@ type Program struct {
 // extensionSettings is the settings an extension built on this package keeps
 // in the config file.
 type extensionSettings struct {
-	SchemaVersion int `yaml:"schema_version"`
+	brainconfig.ExtensionBase `yaml:",inline"`
 }
 
 // Main runs prog with args (without the program name) and returns its exit
@@ -52,7 +51,7 @@ func Main(prog Program, args []string, stdout, stderr io.Writer) int {
 	usage := func() {
 		extensions := ""
 		if prog.ExtensionID == "" {
-			extensions = "  extensions  list the extension executables brainctl can discover\n"
+			extensions = "  extensions  list the extensions in the brain config and their executables\n"
 		}
 		_, _ = fmt.Fprintf(stderr, `usage: %[1]s <command> [flags]
 
@@ -151,15 +150,15 @@ func initWrites(prog Program) string {
 		return "Writes " + path + " in the brain home ($" + brainconfig.EnvVar + ",\n" +
 			"or the current directory) if it is missing"
 	}
-	return "Adds settings for extension " + prog.ExtensionID + " and lists " + prog.Name + " in extension_bins\n" +
+	return "Adds settings for extension " + prog.ExtensionID + ", with bin: " + prog.Name + ",\n" +
 		"in " + path + " " +
 		"in the brain home ($" + brainconfig.EnvVar + ", or the current directory),\n" +
 		"which brainctl init must have created"
 }
 
 // initConfig makes sure the config file at path exists and, for an extension
-// of brainctl, holds the extension's settings and lists its executable, by
-// name, in extension_bins. Only brainctl creates the file:
+// of brainctl, holds the extension's settings, including its executable, by
+// name, as bin. Only brainctl creates the file:
 // an extension fails if brainctl init has not run yet.
 func initConfig(prog Program, path string, log io.Writer) error {
 	id := prog.ExtensionID
@@ -194,36 +193,15 @@ func initConfig(prog Program, path string, log io.Writer) error {
 	} else {
 		_, _ = fmt.Fprintf(log, "Using existing settings for extension %s in %s\n", id, path)
 	}
-	// List the program by name, not by where it is installed, so the file
-	// stays right on every machine it is backed up or committed to. An entry
-	// the user wrote as a path to it counts as listing it already.
-	cfg, err := brainconfig.Load(path)
+	// Set the program by name, not by where it is installed, so the file
+	// stays right on every machine it is backed up or committed to. A bin the
+	// user set, say an absolute path, is kept.
+	binAdded, err := brainconfig.AddExtensionBin(path, id, prog.Name)
 	if err != nil {
 		return err
 	}
-	for _, bin := range cfg.ExtensionBins() {
-		if binName(bin) == prog.Name {
-			return nil
-		}
-	}
-	listed, err := brainconfig.AddExtensionBin(path, prog.Name)
-	if err != nil {
-		return err
-	}
-	if listed {
-		_, _ = fmt.Fprintf(log, "Listed %s in extension_bins in %s\n", prog.Name, path)
+	if binAdded {
+		_, _ = fmt.Fprintf(log, "Set bin: %s for extension %s in %s\n", prog.Name, id, path)
 	}
 	return nil
-}
-
-// binName is the program name an extension_bins entry runs: its last path
-// element (after "/" or, as on Windows, "\") without a ".exe" suffix.
-func binName(bin string) string {
-	if i := strings.LastIndexAny(bin, `/\`); i >= 0 {
-		bin = bin[i+1:]
-	}
-	if len(bin) > 4 && strings.EqualFold(bin[len(bin)-4:], ".exe") {
-		bin = bin[:len(bin)-4]
-	}
-	return bin
 }
