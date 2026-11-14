@@ -104,6 +104,53 @@ func TestInitWritesConfig(t *testing.T) {
 	}
 }
 
+func runWorkctl(args ...string) (code int, stderr string) {
+	var out, errOut strings.Builder
+	code = Main("workctl", args, &out, &errOut)
+	return code, errOut.String()
+}
+
+func TestWorkctlInitAddsExtension(t *testing.T) {
+	stubInstall(t, nil)
+	if code, _, stderr := run("init"); code != 0 {
+		t.Fatalf("brainctl init: got %d, %q", code, stderr)
+	}
+	code, stderr := runWorkctl("init")
+	if code != 0 || strings.Contains(stderr, "Wrote ") || !strings.Contains(stderr, "Added extensions.workctl to ") {
+		t.Fatalf("workctl init: got %d, %q", code, stderr)
+	}
+	path := filepath.Join(".brain", "config.yaml")
+	const want = "schema_version: 1\nextensions:\n  workctl: {}\n"
+	if data, err := os.ReadFile(path); err != nil || string(data) != want {
+		t.Errorf("config = %q, %v; want %q", data, err, want)
+	}
+	if _, err := os.Stat(".work"); err == nil {
+		t.Error("workctl init made a .work directory")
+	}
+	// Running either init again changes nothing.
+	if code, stderr := runWorkctl("init"); code != 0 || !strings.Contains(stderr, "Using existing extensions.workctl") {
+		t.Errorf("second workctl init: got %d, %q", code, stderr)
+	}
+	if code, _, stderr := run("init"); code != 0 {
+		t.Errorf("second brainctl init: got %d, %q", code, stderr)
+	}
+	if data, _ := os.ReadFile(path); string(data) != want {
+		t.Errorf("config changed to %q", data)
+	}
+}
+
+func TestWorkctlInitWithoutBrainConfig(t *testing.T) {
+	stubInstall(t, nil)
+	code, stderr := runWorkctl("init")
+	if code != 0 || !strings.Contains(stderr, "Wrote ") || !strings.Contains(stderr, "Added extensions.workctl") {
+		t.Fatalf("got %d, %q", code, stderr)
+	}
+	const want = "schema_version: 1\nextensions:\n  workctl: {}\n"
+	if data, err := os.ReadFile(filepath.Join(".brain", "config.yaml")); err != nil || string(data) != want {
+		t.Errorf("config = %q, %v; want %q", data, err, want)
+	}
+}
+
 func TestInitStopsOnBadConfig(t *testing.T) {
 	stubInstall(t, nil)
 	installed := false

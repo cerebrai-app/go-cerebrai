@@ -11,7 +11,7 @@ They replace the Rust [brainctl](https://github.com/cerebrai-app/brainctl) and
 | --- | --- |
 | [`cmd/brainctl`](cmd/brainctl), [`cmd/workctl`](cmd/workctl) | the two programs; each only calls `cli.Main` with its name |
 | [`internal/cli`](internal/cli) | the command line both programs share: `version` and `init` |
-| [`internal/config`](internal/config) | reads and writes the project config file, `.brain/config.yaml` (`.work/config.yaml` for `workctl`) |
+| [`internal/config`](internal/config) | reads and writes the brain config file, `.brain/config.yaml`, which `workctl` shares as an extension |
 | [`internal/python`](internal/python) | downloads, verifies and unpacks [python-build-standalone](https://github.com/astral-sh/python-build-standalone) distributions (the port of the `cerebrai-python` crate) |
 | [`internal/buildinfo`](internal/buildinfo) | `buildinfo.Version()`: the version the release links in from the tag, else the module version from `go install`, else `dev` |
 
@@ -80,8 +80,8 @@ brainctl init --variant pgo+lto            # exact build options, no fallback
 
 ### `init`
 
-First, `init` writes a config file to `.brain/config.yaml` in the current directory
-(`.work/config.yaml` for `workctl`), creating the directory if needed:
+First, `brainctl init` writes a config file to `.brain/config.yaml` in the current directory,
+creating the directory if needed:
 
 ```yaml
 schema_version: 1
@@ -91,6 +91,20 @@ schema_version: 1
 checks that it is valid YAML with only known keys and a `schema_version` this release supports. A
 file from a newer release (a higher `schema_version`) is an error, so `init` stops before
 downloading anything.
+
+`workctl` is an extension of `brainctl` and shares its config file. `workctl init` adds an
+`extensions.workctl` key, creating the file first if `brainctl init` hasn't run:
+
+```yaml
+schema_version: 1
+extensions:
+  workctl: {}
+```
+
+An existing `extensions.workctl` is never changed. Adding the key rewrites the file: comments and
+key order are kept, but blank lines are dropped and indentation becomes two spaces. Each extension
+keeps its own settings under `extensions.<program>`. `brainctl` only checks that each one is a
+mapping.
 
 Then it downloads a [python-build-standalone](https://github.com/astral-sh/python-build-standalone)
 distribution to `<data dir>/python-build-standalone/<version>+<build options>/` (for example

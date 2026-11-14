@@ -1,5 +1,6 @@
 // Package cli is the command line shared by brainctl and workctl, which
-// differ only in their name.
+// differ only in their name. workctl is an extension of brainctl: both use
+// the same .brain/config.yaml, where workctl's init adds extensions.workctl.
 package cli
 
 import (
@@ -26,11 +27,11 @@ func Main(name string, args []string, stdout, stderr io.Writer) int {
 
 commands:
   version   print the %[1]s version
-  init      set up the current directory (writes .%[2]s/config.yaml) and the local
-            environment (downloads a python-build-standalone distribution)
+  init      set up %[2]s in the current directory and download a
+            python-build-standalone distribution
 
 Run "%[1]s init -h" for the flags of init.
-`, name, config.DirName(name)[1:])
+`, name, filepath.Join(config.DirName, config.FileName))
 	}
 	if len(args) == 0 {
 		usage()
@@ -71,9 +72,9 @@ that has the preferred build; a note is printed if a newer one exists only as an
 (default `+python.DefaultVariant+`, falling back to the best available build)`)
 	fs.Usage = func() {
 		_, _ = fmt.Fprintf(stderr, "usage: %s init [flags]\n\n"+
-			"Writes %s in the current directory if it is missing, then downloads a\n"+
-			"python-build-standalone distribution into the data directory.\n\nflags:\n",
-			name, filepath.Join(config.DirName(name), config.FileName))
+			"%s, then downloads a python-build-standalone\n"+
+			"distribution into the data directory.\n\nflags:\n",
+			name, initWrites(name))
 		fs.PrintDefaults()
 	}
 	if err := fs.Parse(args); err != nil {
@@ -94,20 +95,53 @@ that has the preferred build; a note is printed if a newer one exists only as an
 		_, _ = fmt.Fprintf(stderr, "error: %v\n", err)
 		return 1
 	}
-	path := config.Path(dir, name)
-	_, created, err := config.Init(path)
-	if err != nil {
+	if err := initConfig(name, config.Path(dir), stderr); err != nil {
 		_, _ = fmt.Fprintf(stderr, "error: %v\n", err)
 		return 1
-	}
-	if created {
-		_, _ = fmt.Fprintf(stderr, "Wrote %s\n", path)
-	} else {
-		_, _ = fmt.Fprintf(stderr, "Using existing %s\n", path)
 	}
 	if _, err := install(opts); err != nil {
 		_, _ = fmt.Fprintf(stderr, "error: %v\n", err)
 		return 1
 	}
 	return 0
+}
+
+// initWrites says what init does to the config file for the program called
+// name, for its usage.
+func initWrites(name string) string {
+	path := filepath.Join(config.DirName, config.FileName)
+	if name == config.Base {
+		return "Writes " + path + " in the current directory if it is missing"
+	}
+	return "Adds extensions." + name + " to " + path + " in the current directory\n" +
+		"(creating the file if it is missing)"
+}
+
+// initConfig makes sure the config file at path exists and, for an extension
+// of brainctl, holds the extension's key. An extension creates the file too if
+// brainctl's init has not run yet.
+func initConfig(name, path string, log io.Writer) error {
+	created, err := config.Init(path)
+	if err != nil {
+		return err
+	}
+	if created {
+		_, _ = fmt.Fprintf(log, "Wrote %s\n", path)
+	}
+	if name == config.Base {
+		if !created {
+			_, _ = fmt.Fprintf(log, "Using existing %s\n", path)
+		}
+		return nil
+	}
+	added, err := config.AddExtension(path, name)
+	if err != nil {
+		return err
+	}
+	if added {
+		_, _ = fmt.Fprintf(log, "Added extensions.%s to %s\n", name, path)
+	} else {
+		_, _ = fmt.Fprintf(log, "Using existing extensions.%s in %s\n", name, path)
+	}
+	return nil
 }
