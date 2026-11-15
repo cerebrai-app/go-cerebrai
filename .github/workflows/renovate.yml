@@ -25,7 +25,7 @@ jobs:
   renovate:
     runs-on: self-hosted
     steps:
-      - uses: cerebrai-app/actions/renovate@a0a097e0166c34eba18e839b3856b6fcbe5bd6e8 # v3.2.0
+      - uses: cerebrai-app/actions/renovate@9d3f590b4cd4b83ad4da88c7f14f61b1100c6430 # v3.3.0
         with:
           app-client-id: ${{ secrets.RENOVATE_APP_CLIENT_ID }}
           app-private-key: ${{ secrets.RENOVATE_APP_PRIVATE_KEY }}
