@@ -15,7 +15,7 @@ jobs:
       issues: read
       id-token: write
     steps:
-      - uses: cerebrai-app/actions/ponytail-review@a0a097e0166c34eba18e839b3856b6fcbe5bd6e8 # v3.2.0
+      - uses: cerebrai-app/actions/ponytail-review@9d3f590b4cd4b83ad4da88c7f14f61b1100c6430 # v3.3.0
         with:
           claude-code-oauth-token: ${{ secrets.CLAUDE_CODE_OAUTH_TOKEN }}
 
@@ -27,7 +27,7 @@ jobs:
       issues: read
       id-token: write
     steps:
-      - uses: cerebrai-app/actions/claude-review@a0a097e0166c34eba18e839b3856b6fcbe5bd6e8 # v3.2.0
+      - uses: cerebrai-app/actions/claude-review@9d3f590b4cd4b83ad4da88c7f14f61b1100c6430 # v3.3.0
         with:
           claude-code-oauth-token: ${{ secrets.CLAUDE_CODE_OAUTH_TOKEN }}
 
@@ -42,4 +42,4 @@ jobs:
       issues: write
       pull-requests: write
     steps:
-      - uses: cerebrai-app/actions/minimize-ponytail-reviews@a0a097e0166c34eba18e839b3856b6fcbe5bd6e8 # v3.2.0
+      - uses: cerebrai-app/actions/minimize-ponytail-reviews@9d3f590b4cd4b83ad4da88c7f14f61b1100c6430 # v3.3.0
