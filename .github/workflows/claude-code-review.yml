@@ -8,26 +8,26 @@ on:
 # doesn't stop the other.
 jobs:
   ponytail-review:
-    runs-on: ubuntu-latest
+    runs-on: self-hosted
     permissions:
       contents: read
       pull-requests: read
       issues: read
       id-token: write
     steps:
-      - uses: cerebrai-app/actions/ponytail-review@a0a097e0166c34eba18e839b3856b6fcbe5bd6e8 # v3.2.0
+      - uses: cerebrai-app/actions/ponytail-review@da96b5c774508e239ab5f47a44af71a77381484c # v3.3.1
         with:
           claude-code-oauth-token: ${{ secrets.CLAUDE_CODE_OAUTH_TOKEN }}
 
   claude-review:
-    runs-on: ubuntu-latest
+    runs-on: self-hosted
     permissions:
       contents: read
       pull-requests: read
       issues: read
       id-token: write
     steps:
-      - uses: cerebrai-app/actions/claude-review@a0a097e0166c34eba18e839b3856b6fcbe5bd6e8 # v3.2.0
+      - uses: cerebrai-app/actions/claude-review@da96b5c774508e239ab5f47a44af71a77381484c # v3.3.1
         with:
           claude-code-oauth-token: ${{ secrets.CLAUDE_CODE_OAUTH_TOKEN }}
 
@@ -37,9 +37,9 @@ jobs:
   minimize-old-ponytail-reviews:
     needs: ponytail-review
     if: ${{ needs.ponytail-review.result == 'success' }}
-    runs-on: ubuntu-latest
+    runs-on: self-hosted
     permissions:
       issues: write
       pull-requests: write
     steps:
-      - uses: cerebrai-app/actions/minimize-ponytail-reviews@a0a097e0166c34eba18e839b3856b6fcbe5bd6e8 # v3.2.0
+      - uses: cerebrai-app/actions/minimize-ponytail-reviews@da96b5c774508e239ab5f47a44af71a77381484c # v3.3.1
