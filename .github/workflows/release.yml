@@ -22,7 +22,7 @@ concurrency:
 
 jobs:
   release:
-    uses: cerebrai-app/actions/.github/workflows/go-release.yml@9d3f590b4cd4b83ad4da88c7f14f61b1100c6430 # v3.3.0
+    uses: cerebrai-app/actions/.github/workflows/go-release.yml@da96b5c774508e239ab5f47a44af71a77381484c # v3.3.1
     permissions:
       contents: write # create the release
       id-token: write # sign the build attestations
