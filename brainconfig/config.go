@@ -357,7 +357,7 @@ func createFile(path string, data []byte) error {
 		return err
 	}
 	tmp := f.Name()
-	defer os.Remove(tmp)
+	defer func() { _ = os.Remove(tmp) }()
 	_, err = f.Write(data)
 	if err == nil {
 		err = f.Chmod(0o600)
