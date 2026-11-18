@@ -322,7 +322,12 @@ func Init(path string) (created bool, err error) {
 	switch {
 	case errors.Is(err, fs.ErrNotExist):
 		if err := createFile(path, data); errors.Is(err, fs.ErrExist) {
-			// A program that does not take the lock made it meanwhile.
+			// Stat found nothing, yet something is there: a symlink to a
+			// missing file, say into a dotfiles repository not checked out,
+			// or a file a program that does not take the lock made meanwhile.
+			if target, linkErr := os.Readlink(path); linkErr == nil {
+				return false, fmt.Errorf("%s is a symlink to %s, which does not exist: create it, or remove the symlink", path, target)
+			}
 			_, err := Load(path)
 			return false, err
 		} else if err != nil {

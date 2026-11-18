@@ -411,3 +411,23 @@ func TestEditThroughDanglingSymlink(t *testing.T) {
 		t.Error("writeFile wrote through a dangling symlink")
 	}
 }
+
+// Init on a symlink to a missing file says so, rather than asking the user
+// to run the init they just ran.
+func TestInitDanglingSymlink(t *testing.T) {
+	path := Path(t.TempDir())
+	if err := os.MkdirAll(filepath.Dir(path), 0o700); err != nil {
+		t.Fatal(err)
+	}
+	target := filepath.Join(t.TempDir(), "dotfiles", "brain.yaml")
+	if err := os.Symlink(target, path); err != nil {
+		t.Skipf("cannot make a symlink here: %v", err)
+	}
+	created, err := Init(path)
+	if err == nil || created || !strings.Contains(err.Error(), "is a symlink to "+target+", which does not exist") {
+		t.Errorf("Init: %v, %v", created, err)
+	}
+	if _, err := os.Stat(target); err == nil {
+		t.Error("Init made the symlink's target")
+	}
+}
