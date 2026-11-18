@@ -72,7 +72,7 @@ func mergedValue(m *yaml.Node, key string) *yaml.Node {
 	if v := mappingValue(m, key); v != nil {
 		return v
 	}
-	merge := mappingValue(m, "<<")
+	merge := mergeValue(m)
 	if merge == nil {
 		return nil
 	}
@@ -93,12 +93,29 @@ func mergedValue(m *yaml.Node, key string) *yaml.Node {
 	return nil
 }
 
+// isMergeKey reports whether k, a key in a mapping, is YAML's merge key: <<
+// written plainly (or tagged !!merge). A quoted "<<" is an ordinary key.
+func isMergeKey(k *yaml.Node) bool {
+	return k.Kind == yaml.ScalarNode && k.ShortTag() == "!!merge"
+}
+
+// mergeValue is the value of the merge key in the mapping m (what <<: refers
+// to), or nil if m has none.
+func mergeValue(m *yaml.Node) *yaml.Node {
+	for i := 0; i+1 < len(m.Content); i += 2 {
+		if isMergeKey(m.Content[i]) {
+			return m.Content[i+1]
+		}
+	}
+	return nil
+}
+
 // checkNoMerge returns an error if the mapping m, at the key path keys (for
 // messages), has a merge key (<<: *base): adding or removing a key there
 // could hide what it takes from the mapping it merges, or change that
 // mapping for everything else that merges it.
 func checkNoMerge(m *yaml.Node, keys []string) error {
-	if m.Kind != yaml.MappingNode || mappingValue(m, "<<") == nil {
+	if m.Kind != yaml.MappingNode || mergeValue(m) == nil {
 		return nil
 	}
 	where := strings.Join(keys, "/")
@@ -396,7 +413,7 @@ func unsetIn(m *yaml.Node, keys []string) (changed bool, err error) {
 		return false, err
 	}
 	for i := 0; i+1 < len(parent.Content); i += 2 {
-		if parent.Content[i].Value == keys[last] {
+		if !isMergeKey(parent.Content[i]) && parent.Content[i].Value == keys[last] {
 			if anchor := findAnchor(parent.Content[i : i+2]...); anchor != "" {
 				return false, fmt.Errorf("%s holds the anchor &%s, which other keys may refer to as *%s, so removing it "+
 					"could make the file unreadable: edit it by hand", strings.Join(keys, "/"), anchor, anchor)

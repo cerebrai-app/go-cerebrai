@@ -571,10 +571,11 @@ func makeBlock(n *yaml.Node, kind yaml.Kind, tag string) {
 	n.Style = 0
 }
 
-// mappingValue is the value of key in the mapping node m, or nil.
+// mappingValue is the value of key in the mapping node m, or nil. A merge
+// key (<<: *base) is not a key of its own: see mergeValue.
 func mappingValue(m *yaml.Node, key string) *yaml.Node {
 	for i := 0; i+1 < len(m.Content); i += 2 {
-		if m.Content[i].Value == key {
+		if !isMergeKey(m.Content[i]) && m.Content[i].Value == key {
 			return m.Content[i+1]
 		}
 	}
