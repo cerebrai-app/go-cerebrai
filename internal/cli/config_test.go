@@ -327,9 +327,9 @@ func withStdin(t *testing.T, input string, terminal bool) {
 
 func TestConfigSetFromStdin(t *testing.T) {
 	for _, tt := range []struct{ name, input, want string }{
-		{"echo", "s3cret\n", "s3cret"},
-		{"no newline", "s3cret", "s3cret"},
-		{"CRLF", "s3cret\r\n", "s3cret"},
+		{"echo", "https://api.example.com\n", "https://api.example.com"},
+		{"no newline", "https://api.example.com", "https://api.example.com"},
+		{"CRLF", "https://api.example.com\r\n", "https://api.example.com"},
 		{"only the last newline goes", "line 1\nline 2\n\n", "line 1\nline 2\n"},
 		{"empty", "", ""},
 		{"a literal dash", "-", "-"},
@@ -339,7 +339,7 @@ func TestConfigSetFromStdin(t *testing.T) {
 			project(t)
 			writeBrainConfig(t, withWorkctl)
 			withStdin(t, tt.input, false)
-			code, stdout, stderr := runWorkctl("config", "set", "env/client_secret", "-")
+			code, stdout, stderr := runWorkctl("config", "set", "env/api_url", "-")
 			if code != 0 || stdout != "" || stderr != "" {
 				t.Fatalf("got %d, %q, %q", code, stdout, stderr)
 			}
@@ -347,7 +347,7 @@ func TestConfigSetFromStdin(t *testing.T) {
 			if err != nil {
 				t.Fatal(err)
 			}
-			got, err := cfg.Get(brainconfig.ExtensionSettings("app.cerebrai.workctl", 1), "env/client_secret")
+			got, err := cfg.Get(brainconfig.ExtensionSettings("app.cerebrai.workctl", 1), "env/api_url")
 			if err != nil || got != tt.want {
 				t.Errorf("value = %q, %v; want %q", got, err, tt.want)
 			}
@@ -360,12 +360,12 @@ func TestConfigSetFromStdin(t *testing.T) {
 func TestConfigSetFromTerminal(t *testing.T) {
 	project(t)
 	writeBrainConfig(t, withWorkctl)
-	withStdin(t, "typed-secret", true)
-	code, stdout, stderr := runWorkctl("config", "set", "env/client_secret", "-")
-	if code != 0 || stdout != "" || stderr != "Value for env/client_secret: \n" {
+	withStdin(t, "typed-value", true)
+	code, stdout, stderr := runWorkctl("config", "set", "env/api_url", "-")
+	if code != 0 || stdout != "" || stderr != "Value for env/api_url: \n" {
 		t.Fatalf("got %d, %q, %q", code, stdout, stderr)
 	}
-	if !strings.Contains(brainConfig(t), "client_secret: typed-secret") {
+	if !strings.Contains(brainConfig(t), "api_url: typed-value") {
 		t.Errorf("config = %q", brainConfig(t))
 	}
 }

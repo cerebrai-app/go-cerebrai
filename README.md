@@ -317,7 +317,8 @@ executable. The rules:
   the file a symlinked config points to), from reading the file until you have replaced it:
   `flock(LOCK_EX)` on Linux and macOS, `LockFileEx` on its first byte on Windows. Replace the
   file by writing a temporary file beside it and renaming it into place, so readers never see it
-  half-written.
+  half-written. A program that skips the lock, or an edit by hand while a command is changing the
+  file, can lose a change without any error.
 - **Check the versions.** Refuse a file whose top-level `schema_version` is newer than you know
   (currently `1`), and settings whose `schema_version` is newer than your release reads, rather
   than misreading them.
