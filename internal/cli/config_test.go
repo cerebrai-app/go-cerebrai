@@ -1,6 +1,7 @@
 package cli
 
 import (
+	"errors"
 	"os"
 	"path/filepath"
 	"strings"
@@ -306,3 +307,107 @@ func TestConfigUnsetErrors(t *testing.T) {
 		})
 	}
 }
+
+// withStdin makes config set - read input: from a terminal if terminal is
+// set (as typed, without echo), otherwise from a pipe.
+func withStdin(t *testing.T, input string, terminal bool) {
+	t.Helper()
+	oldStdin, oldIsTerminal, oldReadHidden := stdin, stdinIsTerminal, readHidden
+	t.Cleanup(func() { stdin, stdinIsTerminal, readHidden = oldStdin, oldIsTerminal, oldReadHidden })
+	stdin = strings.NewReader(input)
+	stdinIsTerminal = func() bool { return terminal }
+	readHidden = func() ([]byte, error) {
+		if !terminal {
+			t.Error("read from a terminal that is not there")
+		}
+		return []byte(input), nil
+	}
+}
+
+func TestConfigSetFromStdin(t *testing.T) {
+	for _, tt := range []struct{ name, input, want string }{
+		{"echo", "s3cret\n", "s3cret"},
+		{"no newline", "s3cret", "s3cret"},
+		{"CRLF", "s3cret\r\n", "s3cret"},
+		{"only the last newline goes", "line 1\nline 2\n\n", "line 1\nline 2\n"},
+		{"empty", "", ""},
+		{"a literal dash", "-", "-"},
+		{"spaces kept", "  padded  \n", "  padded  "},
+	} {
+		t.Run(tt.name, func(t *testing.T) {
+			project(t)
+			writeBrainConfig(t, withWorkctl)
+			withStdin(t, tt.input, false)
+			code, stdout, stderr := runWorkctl("config", "set", "env/client_secret", "-")
+			if code != 0 || stdout != "" || stderr != "" {
+				t.Fatalf("got %d, %q, %q", code, stdout, stderr)
+			}
+			cfg, err := brainconfig.Load(configPath)
+			if err != nil {
+				t.Fatal(err)
+			}
+			got, err := cfg.Get(brainconfig.ExtensionSettings("app.cerebrai.workctl", 1), "env/client_secret")
+			if err != nil || got != tt.want {
+				t.Errorf("value = %q, %v; want %q", got, err, tt.want)
+			}
+		})
+	}
+}
+
+// At a terminal, the value is typed after a prompt on stderr, without echo:
+// it never reaches stdout or the screen.
+func TestConfigSetFromTerminal(t *testing.T) {
+	project(t)
+	writeBrainConfig(t, withWorkctl)
+	withStdin(t, "typed-secret", true)
+	code, stdout, stderr := runWorkctl("config", "set", "env/client_secret", "-")
+	if code != 0 || stdout != "" || stderr != "Value for env/client_secret: \n" {
+		t.Fatalf("got %d, %q, %q", code, stdout, stderr)
+	}
+	if !strings.Contains(brainConfig(t), "client_secret: typed-secret") {
+		t.Errorf("config = %q", brainConfig(t))
+	}
+}
+
+// brainctl's config set takes - too.
+func TestBrainctlConfigSetFromStdin(t *testing.T) {
+	project(t)
+	writeBrainConfig(t, brainOnly)
+	withStdin(t, "me\n", false)
+	if code, _, stderr := runBrainctl("config", "set", "owner", "-"); code != 0 {
+		t.Fatalf("got %d, %q", code, stderr)
+	}
+	if got := brainConfig(t); got != brainOnly+"owner: me\n" {
+		t.Errorf("config = %q", got)
+	}
+}
+
+func TestConfigSetFromStdinErrors(t *testing.T) {
+	project(t)
+	writeBrainConfig(t, withWorkctl)
+
+	// A value read from stdin is checked like any other.
+	withStdin(t, "bin/workctl\n", false)
+	if code, _, stderr := runWorkctl("config", "set", "bin", "-"); code != 1 || !strings.Contains(stderr, "invalid bin") {
+		t.Errorf("bad bin from stdin: got %d, %q", code, stderr)
+	}
+
+	// Errors reading it stop the command before anything is written.
+	stdinIsTerminal = func() bool { return false }
+	stdin = errReader{}
+	if code, _, stderr := runWorkctl("config", "set", "x", "-"); code != 1 || !strings.Contains(stderr, "reading the value for x from standard input: read failed") {
+		t.Errorf("stdin error: got %d, %q", code, stderr)
+	}
+	stdinIsTerminal = func() bool { return true }
+	readHidden = func() ([]byte, error) { return nil, errors.New("terminal gone") }
+	if code, _, stderr := runWorkctl("config", "set", "x", "-"); code != 1 || !strings.Contains(stderr, "reading the value for x: terminal gone") {
+		t.Errorf("terminal error: got %d, %q", code, stderr)
+	}
+	if got := brainConfig(t); got != withWorkctl {
+		t.Errorf("config changed to %q", got)
+	}
+}
+
+type errReader struct{}
+
+func (errReader) Read([]byte) (int, error) { return 0, errors.New("read failed") }

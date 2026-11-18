@@ -229,6 +229,8 @@ mapping.
 ```console
 $ workctl config set env/client_id abc123
 $ workctl config set env/debug true
+$ workctl config set env/client_secret -
+Value for env/client_secret:
 $ workctl config get env/client_id
 abc123
 $ workctl config get env
@@ -255,6 +257,11 @@ owner: me
 - `set` creates the mappings on the way that are missing, and stores the value as a string: one
   that would read as another type, like `true` or `8080`, is quoted so it reads back the same.
   Setting the value a key already has leaves the file alone.
+- A value of `-` is read from standard input, so a secret stays out of your shell history and
+  other users' process lists. At a terminal, `set` prompts for it and doesn't echo what you type;
+  otherwise it reads all of standard input, less one trailing newline, so you can pipe it in:
+  `pass show example/api | workctl config set env/client_secret -`. To set a literal `-`, pipe it
+  in the same way (`printf - | workctl config set key -`).
 - `set` won't lose data: it never replaces a mapping or a list with a value, and a key path can't
   go through a value that isn't a mapping. `workctl` can't change `schema_version`, which it
   manages, and `name` and `bin` must be valid.
