@@ -100,13 +100,9 @@ func config(prog Program, args []string, stdout io.Writer) error {
 	}
 
 	if id != "" {
-		// Check an extension's settings in full first, as init does, so a bad
-		// file is left as it is.
-		ok, err := cfg.DecodeExtension(id, version, new(extensionSettings))
-		if err != nil {
-			return fmt.Errorf("%s: %w", path, err)
-		}
-		if !ok {
+		// Set and Unset check the settings themselves, under the lock; this is
+		// only for a better message when there are none.
+		if _, ok, _ := cfg.Extension(id); !ok {
 			return fmt.Errorf("%s: no settings for extension %s: run %s init first", path, id, prog.Name)
 		}
 	}

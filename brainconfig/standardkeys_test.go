@@ -319,3 +319,26 @@ func TestAddExtensionRefusesAliasedExtensions(t *testing.T) {
 		t.Errorf("file changed to %q", got)
 	}
 }
+
+// Control characters are refused in name and bin: the file can come from a
+// cloned repository, and these reach the terminal.
+func TestCheckControlCharacters(t *testing.T) {
+	for _, bad := range []string{"a\x1b[2Jb", "a\tb", "a\x00b", "a\u0085b", "a\x7fb"} {
+		if err := CheckName(bad); err == nil {
+			t.Errorf("CheckName(%q) accepted", bad)
+		}
+		if err := CheckBin(bad); err == nil {
+			t.Errorf("CheckBin(%q) accepted", bad)
+		}
+		if err := CheckBin("/opt/" + bad); err == nil {
+			t.Errorf("CheckBin(/opt/%q) accepted", bad)
+		}
+	}
+	cfg, err := Unmarshal([]byte(settings(`{schema_version: 1, name: "x\e[2Jy"}`)))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, _, err := cfg.Extension("com.example.tool"); err == nil || !strings.Contains(err.Error(), "control characters") {
+		t.Errorf("Extension with an escape code in name: %v", err)
+	}
+}

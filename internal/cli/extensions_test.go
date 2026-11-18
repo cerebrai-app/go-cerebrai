@@ -11,6 +11,7 @@ import (
 	"runtime"
 	"strings"
 	"testing"
+	"unicode"
 
 	"github.com/cerebrai-app/go-cerebrai/brainconfig"
 )
@@ -261,5 +262,42 @@ func TestExtensionsListWriteError(t *testing.T) {
 	var errOut strings.Builder
 	if code := Main(brainctl, []string{"extensions", "ls"}, failingWriter{}, &errOut); code != 1 || !strings.HasPrefix(errOut.String(), "error: ") {
 		t.Errorf("got %d, %q", code, errOut.String())
+	}
+}
+
+// Text from the config never reaches the terminal as control characters:
+// they are shown as escapes, so a hostile config cannot clear the screen or
+// break the table.
+func TestExtensionsListEscapesControlCharacters(t *testing.T) {
+	project(t)
+	binDir(t)
+	writeBrainConfig(t, "schema_version: 1\nextensions:\n"+
+		"  \"com.example.\\e[2Jtab\\tid\": {schema_version: 1, bin: tool}\n"+
+		"  com.example.badname: {schema_version: 1, name: \"x\\e[31my\"}\n")
+	code, stdout, stderr := runBrainctl("extensions", "ls")
+	if code != 0 {
+		t.Fatalf("got %d, %q", code, stderr)
+	}
+	if strings.ContainsFunc(stdout, func(r rune) bool { return r != '\n' && unicode.IsControl(r) }) {
+		t.Errorf("control characters reached the output: %q", stdout)
+	}
+	for _, want := range []string{`com.example.\x1b[2Jtab\tid`, `control characters are not allowed`} {
+		if !strings.Contains(stdout, want) {
+			t.Errorf("output lacks %q:\n%s", want, stdout)
+		}
+	}
+}
+
+func TestCell(t *testing.T) {
+	for in, want := range map[string]string{
+		"plain":      "plain",
+		"Ünïcode ✓":  "Ünïcode ✓",
+		"a\x1b[2Jb":  `a\x1b[2Jb`,
+		"a\tb\nc":    `a\tb\nc`,
+		"\x00\u0085": `\x00\u0085`,
+	} {
+		if got := cell(in); got != want {
+			t.Errorf("cell(%q) = %q, want %q", in, got, want)
+		}
 	}
 }

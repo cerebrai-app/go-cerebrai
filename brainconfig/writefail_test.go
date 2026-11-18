@@ -113,3 +113,51 @@ func writeLong(t *testing.T, path string) {
 		t.Skipf("file system does not take a %d byte name: %v", len(longName), err)
 	}
 }
+
+// On Windows, a rename over a file another program has open fails until it
+// closes it; replace retries for a while there, and only there.
+func TestReplaceRetries(t *testing.T) {
+	oldRename, oldRetry := rename, retryRename
+	t.Cleanup(func() { rename, retryRename = oldRename, oldRetry })
+
+	failures := 0
+	blocked := func(n int) func(string, string) error {
+		failures = 0
+		return func(from, to string) error {
+			if failures < n {
+				failures++
+				return &os.LinkError{Op: "rename", Old: from, New: to, Err: os.ErrPermission}
+			}
+			return os.Rename(from, to)
+		}
+	}
+
+	retryRename = true
+	rename = blocked(3)
+	path := writeConfig(t, brainOnly)
+	if err := writeFile(path, []byte("schema_version: 1\nowner: me\n")); err != nil || failures != 3 {
+		t.Errorf("blocked 3 times: %v after %d failures", err, failures)
+	}
+	if got := readFile(t, path); got != "schema_version: 1\nowner: me\n" {
+		t.Errorf("file = %q", got)
+	}
+
+	// It gives up eventually, leaving the file and no temporary file.
+	rename = blocked(1000)
+	if err := writeFile(path, []byte(brainOnly)); err == nil || failures != 10 {
+		t.Errorf("blocked for good: %v after %d tries", err, failures)
+	}
+	if got := readFile(t, path); got != "schema_version: 1\nowner: me\n" {
+		t.Errorf("file changed to %q", got)
+	}
+	if names := dirEntries(t, filepath.Dir(path)); len(names) != 1 {
+		t.Errorf("left %q", names)
+	}
+
+	// Elsewhere a failed rename is not retried.
+	retryRename = false
+	rename = blocked(1)
+	if err := writeFile(path, []byte(brainOnly)); err == nil || failures != 1 {
+		t.Errorf("without retries: %v after %d tries", err, failures)
+	}
+}

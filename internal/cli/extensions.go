@@ -6,8 +6,10 @@ import (
 	"io"
 	"io/fs"
 	"os/exec"
+	"strconv"
 	"strings"
 	"text/tabwriter"
+	"unicode"
 
 	"github.com/cerebrai-app/go-cerebrai/brainconfig"
 )
@@ -85,14 +87,34 @@ func listExtensions(stdout, stderr io.Writer) error {
 		switch {
 		case err != nil:
 			// One line, so a multi-line YAML error keeps the table's rows.
-			_, _ = fmt.Fprintf(w, "%s\t-\t-\t%s\n", id, strings.Join(strings.Fields(err.Error()), " "))
+			_, _ = fmt.Fprintf(w, "%s\t-\t-\t%s\n", cell(id), cell(strings.Join(strings.Fields(err.Error()), " ")))
 		case ext.Bin == "":
-			_, _ = fmt.Fprintf(w, "%s\t%s\t-\tno bin set\n", id, orDash(ext.Name))
+			_, _ = fmt.Fprintf(w, "%s\t%s\t-\tno bin set\n", cell(id), cell(orDash(ext.Name)))
 		default:
-			_, _ = fmt.Fprintf(w, "%s\t%s\t%s\t%s\n", id, orDash(ext.Name), ext.Bin, where(ext.Bin))
+			_, _ = fmt.Fprintf(w, "%s\t%s\t%s\t%s\n", cell(id), cell(orDash(ext.Name)), cell(ext.Bin), cell(where(ext.Bin)))
 		}
 	}
 	return w.Flush()
+}
+
+// cell is s for a table cell, with any control character written as an
+// escape (\x1b, \t): the config can come from a cloned repository, and its
+// text must not reach the terminal as escape codes that rewrite the screen,
+// or as tabs that break the table.
+func cell(s string) string {
+	if strings.IndexFunc(s, unicode.IsControl) < 0 {
+		return s
+	}
+	var b strings.Builder
+	for _, r := range s {
+		if unicode.IsControl(r) {
+			q := strconv.QuoteRune(r)
+			b.WriteString(q[1 : len(q)-1])
+		} else {
+			b.WriteRune(r)
+		}
+	}
+	return b.String()
 }
 
 // orDash is s, or "-" if s is empty, for a table cell.

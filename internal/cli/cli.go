@@ -40,12 +40,6 @@ type Program struct {
 	ExtensionSchemaVersion int
 }
 
-// extensionSettings is the settings an extension built on this package keeps
-// in the config file.
-type extensionSettings struct {
-	brainconfig.ExtensionBase `yaml:",inline"`
-}
-
 // Main runs prog with args (without the program name) and returns its exit
 // code: 0 on success, 1 on failure, 2 on a usage error.
 func Main(prog Program, args []string, stdout, stderr io.Writer) int {
@@ -182,17 +176,9 @@ func initConfig(prog Program, path string, log io.Writer) error {
 	// The program's name and bin are its own name, not where it is
 	// installed, so the file stays right on every machine it is backed up or
 	// committed to. A name or bin the user set, say an absolute path, is kept.
-	// Check existing settings in full before writing anything: AddExtension
-	// checks only the standard keys, workctl's own settings (as it gains
-	// them) can have values of the wrong type, and a failed init must leave
-	// the file as it was.
-	cfg, err := brainconfig.Load(path)
-	if err != nil {
-		return err
-	}
-	if _, err := cfg.DecodeExtension(id, prog.ExtensionSchemaVersion, new(extensionSettings)); err != nil {
-		return fmt.Errorf("%s: %w", path, err)
-	}
+	// AddExtension checks the existing settings, under the lock, before it
+	// writes anything. (When workctl gains settings of its own, check them
+	// with DecodeExtension too.)
 	added, err := brainconfig.AddExtension(path, id, brainconfig.ExtensionBase{
 		SchemaVersion: prog.ExtensionSchemaVersion,
 		Name:          prog.Name,

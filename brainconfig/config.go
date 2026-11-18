@@ -68,9 +68,12 @@ import (
 	"path"
 	"path/filepath"
 	"regexp"
+	"runtime"
 	"slices"
 	"strconv"
 	"strings"
+	"time"
+	"unicode"
 
 	"go.yaml.in/yaml/v3"
 )
@@ -150,6 +153,8 @@ func CheckName(name string) error {
 		return fmt.Errorf("invalid name %q: leading or trailing space", name)
 	case strings.ContainsAny(name, "\r\n"):
 		return fmt.Errorf("invalid name %q: it must be one line", name)
+	case strings.IndexFunc(name, unicode.IsControl) >= 0:
+		return fmt.Errorf("invalid name %q: control characters are not allowed", name)
 	}
 	return nil
 }
@@ -165,6 +170,8 @@ func CheckBin(bin string) error {
 		return errors.New("invalid bin: empty")
 	case bin != strings.TrimSpace(bin):
 		return fmt.Errorf("invalid bin %q: leading or trailing space", bin)
+	case strings.IndexFunc(bin, unicode.IsControl) >= 0:
+		return fmt.Errorf("invalid bin %q: control characters are not allowed", bin)
 	case filepath.IsAbs(bin) || path.IsAbs(bin):
 		return nil
 	case bin == "." || bin == ".." || strings.ContainsAny(bin, `/\`):
@@ -573,12 +580,34 @@ func writeFile(path string, data []byte) error {
 		err = closeErr
 	}
 	if err == nil {
-		err = os.Rename(tmp, path)
+		err = replace(tmp, path)
 	}
 	if err != nil {
 		_ = os.Remove(tmp)
 	}
 	return err
+}
+
+// rename is os.Rename, and retryRename whether replace retries it: on
+// Windows, where a rename over a file that another program has open fails
+// until it closes it. Programs that only read the config do not take the
+// lock, and neither do virus scanners, so a reader can briefly hold the file
+// open as a writer replaces it. Tests replace both.
+var (
+	rename      = os.Rename
+	retryRename = runtime.GOOS == "windows"
+)
+
+// replace renames tmp over path, retrying for about half a second where
+// retryRename says a reader can block it.
+func replace(tmp, path string) error {
+	for i := 1; ; i++ {
+		err := rename(tmp, path)
+		if err == nil || !retryRename || i == 10 {
+			return err
+		}
+		time.Sleep(time.Duration(i) * 10 * time.Millisecond)
+	}
 }
 
 // ErrNoConfig is the error, matched with errors.Is, for a config file that does
