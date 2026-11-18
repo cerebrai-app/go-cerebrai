@@ -44,7 +44,7 @@ scoop install cerebrai-app/workctl
 Tagged releases publish both programs on the
 [Releases page](https://github.com/cerebrai-app/go-cerebrai/releases), as
 `<program>-v<version>-<os>-<arch>.tar.gz` (`.zip` for Windows) with one `checksums.txt`, for
-`linux/amd64`, `linux/arm64`, `darwin/amd64`, `darwin/arm64` and `windows/amd64`. The Linux
+`linux/amd64`, `linux/arm64`, `darwin/amd64`, `darwin/arm64`, `windows/amd64` and `windows/arm64`. The Linux
 binaries are static and run on any distribution.
 
 ```sh
