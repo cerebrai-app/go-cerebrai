@@ -113,11 +113,21 @@ release (a higher `schema_version`) is an error, so `init` stops before download
 Top-level keys `brainctl` doesn't know, whether from a newer release or your own, are ignored,
 and kept when an extension edits the file.
 
+`brainctl init` makes `.brain` and `config.yaml` readable by you alone (`0700` and `0600`), since
+extensions may keep secrets in their settings. Loosen them by hand to share the file; later edits
+keep whatever permissions it has.
+
 Every edit replaces the file whole, through a temporary file, so a failed write never leaves it
-half-written. The config can be a symlink, say into a dotfiles repository: edits go to the file
-it points to, and the link stays. An empty file, as an interrupted `brainctl init` can leave, is
-filled in by the next `brainctl init`. There is no lock, so run commands that change the file one
-at a time: two at the same moment can lose one change.
+half-written, and a new file only appears once it is complete. The config can be a symlink, say
+into a dotfiles repository: edits go to the file it points to, and the link stays. An empty
+file, which a crash in another program can leave, is filled in by the next `brainctl init`.
+
+Programs that change the file at the same moment, say several extensions' `init` in one setup
+script, take turns: each holds a lock on `.config.yaml.lock`, beside the config, from reading the
+file until it has replaced it. The lock is the operating system's (`flock`, or `LockFileEx` on
+Windows), so a crashed program never leaves it held; a change that waits over 10 seconds for one
+gives up with an error. The lock file stays in `.brain`: if you commit `.brain`, add
+`.config.yaml.lock` and `.config.yaml.*.tmp` to your `.gitignore`.
 
 `workctl` is an extension of `brainctl` and shares its config file. `workctl init` adds its
 settings under `extensions`, keyed by its ID `app.cerebrai.workctl`. Run `brainctl init` first:
@@ -279,6 +289,11 @@ executable. The rules:
   keep content you don't understand, including keys you don't know, at the top level or in your
   own settings: ignore them rather than rejecting the file. Never create the file: if it is
   missing, fail and ask the user to run `brainctl init`.
+- **Take the lock.** Hold an exclusive lock on `.config.yaml.lock`, beside the config file (beside
+  the file a symlinked config points to), from reading the file until you have replaced it:
+  `flock(LOCK_EX)` on Linux and macOS, `LockFileEx` on its first byte on Windows. Replace the
+  file by writing a temporary file beside it and renaming it into place, so readers never see it
+  half-written.
 - **Check the versions.** Refuse a file whose top-level `schema_version` is newer than you know
   (currently `1`), and settings whose `schema_version` is newer than your release reads, rather
   than misreading them.
@@ -334,10 +349,11 @@ if _, err := brainconfig.AddExtension(path, "com.example.tool", brainconfig.Exte
 }
 ```
 
-For a `config` command like `workctl`'s, `cfg.ExtensionValue(id, schemaVersion, keyPath)` reads
-a value by key path, and `brainconfig.SetExtensionValue(path, id, schemaVersion, keyPath, value)`
-and `brainconfig.UnsetExtensionValue(path, id, schemaVersion, keyPath)` change one, with the same
-rules; `workctl`'s command is a thin layer over them in
+For a `config` command like `workctl`'s, `cfg.Get(scope, keyPath)` reads a value by key path,
+and `brainconfig.Set(path, scope, keyPath, value)` and `brainconfig.Unset(path, scope, keyPath)`
+change one, with the same rules, where `scope` is `brainconfig.ExtensionSettings(id,
+schemaVersion)` for your settings (`brainconfig.TopLevel` is the file's top level, for
+`brainctl`). Every change through `brainconfig` takes the lock; `workctl`'s command is a thin layer over them in
 [`internal/cli`](internal/cli).
 
 Extensions in other languages edit the YAML directly. Use a library that keeps comments if you

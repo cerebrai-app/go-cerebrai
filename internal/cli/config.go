@@ -84,9 +84,9 @@ func config(prog Program, args []string, stdout io.Writer) error {
 	if args[0] == "get" {
 		var value string
 		if id == "" {
-			value, err = cfg.Value(args[1])
+			value, err = cfg.Get(brainconfig.TopLevel, args[1])
 		} else {
-			value, err = cfg.ExtensionValue(id, version, args[1])
+			value, err = cfg.Get(brainconfig.ExtensionSettings(id, version), args[1])
 		}
 		if err != nil {
 			return fmt.Errorf("%s: %w", path, err)
@@ -112,13 +112,13 @@ func config(prog Program, args []string, stdout io.Writer) error {
 	}
 	switch {
 	case args[0] == "set" && id == "":
-		_, err = brainconfig.SetValue(path, args[1], args[2])
+		_, err = brainconfig.Set(path, brainconfig.TopLevel, args[1], args[2])
 	case args[0] == "set":
-		_, err = brainconfig.SetExtensionValue(path, id, version, args[1], args[2])
+		_, err = brainconfig.Set(path, brainconfig.ExtensionSettings(id, version), args[1], args[2])
 	case id == "":
-		_, err = brainconfig.UnsetValue(path, args[1])
+		_, err = brainconfig.Unset(path, brainconfig.TopLevel, args[1])
 	default:
-		_, err = brainconfig.UnsetExtensionValue(path, id, version, args[1])
+		_, err = brainconfig.Unset(path, brainconfig.ExtensionSettings(id, version), args[1])
 	}
 	return err
 }

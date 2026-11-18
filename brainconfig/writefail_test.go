@@ -10,13 +10,15 @@ import (
 // Failures while writing the config file: none of them may leave a partial
 // file, a temporary file, or a changed original behind.
 
-// longName is a file name that is valid on its own, but too long once
-// writeFile turns it into a temporary file name: file systems limit a name to
-// 255 bytes, and ".<name>.<random>.tmp" adds at least 7 (the random part is 1
-// to 10 digits), so 250 is over the limit whatever the random part is.
-var longName = strings.Repeat("c", 250)
+// longName is a file name that is valid on its own, and so is its lock file's
+// (".<name>.lock", 6 more), but not a temporary file's: file systems limit a
+// name to 255 bytes, and ".<name>.<random>.tmp" adds at least 7 (the random
+// part is 1 to 10 digits), so 249 is over the limit whatever the random part
+// is, while the lock file's name is exactly 255.
+var longName = strings.Repeat("c", 249)
 
-// dirEntries are the names in dir.
+// dirEntries are the names in dir, but for lock files (".<name>.lock"), which
+// are meant to stay: what a write left behind besides the files it wrote.
 func dirEntries(t *testing.T, dir string) []string {
 	t.Helper()
 	entries, err := os.ReadDir(dir)
@@ -25,6 +27,9 @@ func dirEntries(t *testing.T, dir string) []string {
 	}
 	var names []string
 	for _, e := range entries {
+		if strings.HasPrefix(e.Name(), ".") && strings.HasSuffix(e.Name(), ".lock") {
+			continue
+		}
 		names = append(names, e.Name())
 	}
 	return names

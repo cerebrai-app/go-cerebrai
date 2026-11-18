@@ -22,8 +22,8 @@ import (
 //	    env:
 //	      client_id: abc123
 //
-// Value, SetValue and UnsetValue work on the file's top level, for brainctl;
-// ExtensionValue, SetExtensionValue and UnsetExtensionValue work on one
+// Config.Get, Set and Unset take a Scope saying where key paths start:
+// TopLevel, the file's top level, for brainctl, or ExtensionSettings, one
 // extension's settings, for that extension.
 
 // ErrNotSet is the error, matched with errors.Is, for a key path that leads
@@ -65,9 +65,9 @@ func lookup(m *yaml.Node, keys []string) (*yaml.Node, error) {
 	return n, nil
 }
 
-// scope is where in the file a key path starts: the top level, or one
-// extension's settings.
-type scope struct {
+// Scope is where in the file a key path starts: TopLevel, or the settings
+// of one extension, from ExtensionSettings.
+type Scope struct {
 	// desc names the scope in messages.
 	desc string
 	// find returns the mapping key paths start from, in the file's top-level
@@ -78,10 +78,12 @@ type scope struct {
 	check func(keys []string, value *string) error
 }
 
-// topLevel is the scope of the file's top level, which brainctl owns.
-// schema_version and extensions cannot be changed through it: the first is
-// brainctl's to manage, the second the extensions'.
-var topLevel = scope{
+// TopLevel is the scope of the file's top level, which brainctl owns, and
+// where the user's own keys go. Any key can be read through it, but
+// schema_version and extensions cannot be changed: the first is brainctl's to
+// manage, the second holds the extensions' settings, which they change
+// themselves.
+var TopLevel = Scope{
 	desc: "config file",
 	find: func(root *yaml.Node) (*yaml.Node, error) { return root, nil },
 	check: func(keys []string, _ *string) error {
@@ -95,12 +97,14 @@ var topLevel = scope{
 	},
 }
 
-// extensionScope is the scope of the settings of the extension with ID id,
-// whose newest format the caller reads is schemaVersion. schema_version
-// cannot be changed through it, since the extension manages it, and name and
-// bin must stay valid.
-func extensionScope(id string, schemaVersion int) scope {
-	return scope{
+// ExtensionSettings is the scope of the settings of the extension with ID id,
+// whose newest format the caller reads is schemaVersion: they must exist (see
+// AddExtension) and be in a format the caller reads (see DecodeExtension), or
+// Get, Set and Unset fail. schema_version cannot be changed through it, since
+// the extension manages it, and name and bin must stay valid (see CheckName
+// and CheckBin).
+func ExtensionSettings(id string, schemaVersion int) Scope {
+	return Scope{
 		desc: "settings for extension " + id,
 		find: func(root *yaml.Node) (*yaml.Node, error) {
 			exts := mappingValue(root, "extensions")
@@ -135,26 +139,18 @@ func extensionScope(id string, schemaVersion int) scope {
 	}
 }
 
-// Value is the value at keyPath from the file's top level, as ExtensionValue
-// describes. Any key can be read, extensions and schema_version included.
-func (c Config) Value(keyPath string) (string, error) {
-	return getValue(c.root, topLevel, keyPath)
-}
-
-// ExtensionValue is the value at keyPath in the settings of the extension with
-// ID id, whose newest format the caller reads is schemaVersion. A scalar's
-// value is its text; a mapping or list is its YAML, in block style and ending
-// in a newline. It is an ErrNotSet error if the extension has no settings or
-// keyPath leads to nothing, and an error if the settings are not ones the
-// caller reads (see DecodeExtension) or keyPath passes through something that
-// is not a mapping.
-func (c Config) ExtensionValue(id string, schemaVersion int, keyPath string) (string, error) {
-	return getValue(c.root, extensionScope(id, schemaVersion), keyPath)
+// Get is the value at keyPath in scope s. A scalar's value is its text; a
+// mapping or list is its YAML, in block style and ending in a newline. It is
+// an ErrNotSet error if keyPath leads to nothing, or s is an extension's
+// settings and it has none, and an error if keyPath passes through something
+// that is not a mapping, or s's settings are not ones the caller reads.
+func (c Config) Get(s Scope, keyPath string) (string, error) {
+	return getValue(c.root, s, keyPath)
 }
 
 // getValue is the value at keyPath in scope s of the file whose top-level
 // mapping is root.
-func getValue(root *yaml.Node, s scope, keyPath string) (string, error) {
+func getValue(root *yaml.Node, s Scope, keyPath string) (string, error) {
 	keys, err := splitKeyPath(keyPath)
 	if err != nil {
 		return "", err
@@ -208,57 +204,38 @@ func blockStyle(n *yaml.Node) *yaml.Node {
 	return &c
 }
 
-// SetValue sets the value at keyPath from the file's top level, in the config
-// file at path, as SetExtensionValue describes. schema_version and extensions
-// cannot be set: brainctl manages the first, and the second holds the
-// extensions' settings, which they change themselves.
-func SetValue(path, keyPath, value string) (changed bool, err error) {
-	return changeValue(path, topLevel, keyPath, &value)
-}
-
-// SetExtensionValue sets the value at keyPath in the settings of the extension
-// with ID id, in the config file at path, to the string value, creating the
-// mappings on the way that are missing. schemaVersion is the newest format of
-// the settings the caller reads: they must exist (see AddExtension), and be
-// ones it reads, before anything is written.
+// Set sets the value at keyPath in scope s of the config file at path to the
+// string value, creating the mappings on the way that are missing.
 //
 // The value is stored as a string, quoted where it would otherwise read as
 // another type, so "true" or "123" reads back as the same text. A value that
 // is a mapping, a list or a reference to another value is never replaced, and
 // keyPath cannot pass through a value that is not a mapping: either would lose
-// what is there. schema_version cannot be set, since the extension manages
-// it, and name and bin must be valid (see CheckName and CheckBin).
+// what is there. Keys that s does not let be changed are refused (see
+// TopLevel and ExtensionSettings).
 //
 // changed is false, and nothing is written, if the value is already set.
 // Other content and comments are kept, including a comment on the value
 // replaced; blank lines are not.
-func SetExtensionValue(path, id string, schemaVersion int, keyPath, value string) (changed bool, err error) {
-	return changeValue(path, extensionScope(id, schemaVersion), keyPath, &value)
+func Set(path string, s Scope, keyPath, value string) (changed bool, err error) {
+	return changeValue(path, s, keyPath, &value)
 }
 
-// UnsetValue removes the key at keyPath from the file's top level, in the
-// config file at path, as UnsetExtensionValue describes. schema_version and
-// extensions cannot be unset.
-func UnsetValue(path, keyPath string) (changed bool, err error) {
-	return changeValue(path, topLevel, keyPath, nil)
-}
-
-// UnsetExtensionValue removes the key at keyPath, with its value, from the
-// settings of the extension with ID id, in the config file at path. A
-// mapping or list goes with everything in it; a mapping left empty is kept.
-// schemaVersion is as for SetExtensionValue, and schema_version cannot be
-// unset. changed is false, and nothing is written, if the key is not there;
-// keyPath passing through a value that is not a mapping is an error. Other
-// content and comments are kept, apart from the removed key's own.
-func UnsetExtensionValue(path, id string, schemaVersion int, keyPath string) (changed bool, err error) {
-	return changeValue(path, extensionScope(id, schemaVersion), keyPath, nil)
+// Unset removes the key at keyPath in scope s of the config file at path,
+// with its value. A mapping or list goes with everything in it; a mapping left
+// empty is kept. Keys that s does not let be changed are refused, as for Set.
+// changed is false, and nothing is written, if the key is not there; keyPath
+// passing through a value that is not a mapping is an error. Other content and
+// comments are kept, apart from the removed key's own.
+func Unset(path string, s Scope, keyPath string) (changed bool, err error) {
+	return changeValue(path, s, keyPath, nil)
 }
 
 // changeValue sets the value at keyPath in scope s of the config file at path
 // to *value, or removes it if value is nil. It applies the change to a parse
 // of the file first, which decides whether there is anything to do and finds
 // any error before anything is written, then to the document it writes.
-func changeValue(path string, s scope, keyPath string, value *string) (changed bool, err error) {
+func changeValue(path string, s Scope, keyPath string, value *string) (changed bool, err error) {
 	keys, err := splitKeyPath(keyPath)
 	if err != nil {
 		return false, err
@@ -266,6 +243,11 @@ func changeValue(path string, s scope, keyPath string, value *string) (changed b
 	if err := s.check(keys, value); err != nil {
 		return false, err
 	}
+	unlock, err := lockExisting(path)
+	if err != nil {
+		return false, err
+	}
+	defer unlock()
 	data, err := readConfig(path)
 	if err != nil {
 		return false, err
@@ -306,7 +288,7 @@ func changeValue(path string, s scope, keyPath string, value *string) (changed b
 }
 
 // setIn sets the value at keys from the mapping m to the string value,
-// creating the mappings on the way that are missing, as SetExtensionValue
+// creating the mappings on the way that are missing, as Set
 // describes. changed is false if the value is already set.
 func setIn(m *yaml.Node, keys []string, value string) (changed bool, err error) {
 	last := len(keys) - 1

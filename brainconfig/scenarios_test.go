@@ -377,7 +377,7 @@ func TestEditThroughSymlink(t *testing.T) {
 	if _, err := AddExtension(path, "app.cerebrai.workctl", workctlBase); err != nil {
 		t.Fatal(err)
 	}
-	if _, err := SetValue(path, "owner", "me"); err != nil {
+	if _, err := Set(path, TopLevel, "owner", "me"); err != nil {
 		t.Fatal(err)
 	}
 	if info, err := os.Lstat(path); err != nil || info.Mode()&os.ModeSymlink == 0 {

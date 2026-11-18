@@ -134,9 +134,8 @@ func TestAddExtensionKeepsPermissions(t *testing.T) {
 	if mode := info.Mode().Perm(); mode != 0o600 && runtime.GOOS != "windows" {
 		t.Errorf("mode = %v, want 0600", mode)
 	}
-	entries, _ := os.ReadDir(filepath.Dir(path))
-	if len(entries) != 1 {
-		t.Errorf("left files behind: %v", entries)
+	if names := dirEntries(t, filepath.Dir(path)); len(names) != 1 {
+		t.Errorf("left files behind: %v", names)
 	}
 }
 

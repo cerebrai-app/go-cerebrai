@@ -52,9 +52,9 @@
 // Edits through this package keep the file's comments and the order of its
 // keys, but not its blank lines, and re-indent it with two spaces. Each edit
 // reads the file, changes it and replaces it whole, so a failed write never
-// leaves it half-written, and a symlinked file stays a symlink. There is no
-// lock, though: two edits at the same moment, from two processes, can lose
-// one of them, so run commands that change the file one at a time.
+// leaves it half-written, and a symlinked file stays a symlink. Each holds a
+// lock while it does, so edits from different programs at the same moment
+// take turns rather than lose one another (see lock.go).
 package brainconfig
 
 import (
@@ -303,41 +303,82 @@ func Path(dir string) string {
 // Init makes sure the config file at path exists and is one this release can
 // read. A missing file is created, with its directory, holding only
 // schema_version, and created is true. An existing file is checked but never
-// changed.
+// changed, except that a zero-byte one is filled in (see below).
+//
+// The file and its directory are made readable by their owner only (0600 and
+// 0700), since extensions may keep secrets in their settings; loosen them by
+// hand to share the file. Later edits keep the file's permissions.
 func Init(path string) (created bool, err error) {
-	if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
+	if err := os.MkdirAll(filepath.Dir(path), 0o700); err != nil {
 		return false, err
 	}
-	data := fmt.Appendf(nil, "schema_version: %d\n", SchemaVersion)
-	// O_EXCL, so a file that appears between a check and the write is never
-	// overwritten.
-	f, err := os.OpenFile(path, os.O_WRONLY|os.O_CREATE|os.O_EXCL, 0o644)
-	if errors.Is(err, fs.ErrExist) {
-		// A zero-byte file is what an Init killed between creating the file
-		// and writing it leaves: fill it in rather than fail on it for good.
-		// Nothing is lost, and a file with any content, even only comments,
-		// is left alone.
-		if info, statErr := os.Stat(path); statErr == nil && info.Mode().IsRegular() && info.Size() == 0 {
-			if err := writeFile(path, data); err != nil {
-				return false, fmt.Errorf("writing %s: %w", path, err)
-			}
-			return true, nil
-		}
-		_, err := Load(path)
-		return false, err
-	}
+	unlock, err := lockConfig(path)
 	if err != nil {
 		return false, err
 	}
+	defer unlock()
+	data := fmt.Appendf(nil, "schema_version: %d\n", SchemaVersion)
+	info, err := os.Stat(path)
+	switch {
+	case errors.Is(err, fs.ErrNotExist):
+		if err := createFile(path, data); errors.Is(err, fs.ErrExist) {
+			// A program that does not take the lock made it meanwhile.
+			_, err := Load(path)
+			return false, err
+		} else if err != nil {
+			return false, fmt.Errorf("writing %s: %w", path, err)
+		}
+		return true, nil
+	case err != nil:
+		return false, err
+	case info.Mode().IsRegular() && info.Size() == 0:
+		// A zero-byte file is not something this package leaves, but a crash
+		// in another program, or an older release, can: fill it in rather than
+		// fail on it for good. Nothing is lost, and a file with any content,
+		// even only comments, is left alone.
+		if err := writeFile(path, data); err != nil {
+			return false, fmt.Errorf("writing %s: %w", path, err)
+		}
+		return true, nil
+	}
+	_, err = Load(path)
+	return false, err
+}
+
+// createFile creates the file at path, owner-only, holding data, and fails
+// with an fs.ErrExist error if it exists. The file appears whole: data is
+// written to a temporary file first, which is then linked in at path, so no
+// reader can see it empty or half-written, and a crash leaves no file at
+// path. Where the file system has no hard links, the temporary file is
+// renamed instead, which the lock makes safe from this package's own writers.
+func createFile(path string, data []byte) error {
+	f, err := os.CreateTemp(filepath.Dir(path), "."+filepath.Base(path)+".*.tmp")
+	if err != nil {
+		return err
+	}
+	tmp := f.Name()
+	defer os.Remove(tmp)
 	_, err = f.Write(data)
+	if err == nil {
+		err = f.Chmod(0o600)
+	}
+	if err == nil {
+		err = f.Sync()
+	}
 	if closeErr := f.Close(); err == nil {
 		err = closeErr
 	}
 	if err != nil {
-		_ = os.Remove(path)
-		return false, fmt.Errorf("writing %s: %w", path, err)
+		return err
 	}
-	return true, nil
+	err = os.Link(tmp, path)
+	if err == nil || errors.Is(err, fs.ErrExist) {
+		return err
+	}
+	if _, statErr := os.Lstat(path); statErr == nil {
+		return fs.ErrExist
+	}
+	return os.Rename(tmp, path)
 }
 
 // AddExtension makes sure the config file at path holds settings for the
@@ -372,6 +413,11 @@ func AddExtension(path, id string, want ExtensionBase) (added []string, err erro
 			return nil, err
 		}
 	}
+	unlock, err := lockExisting(path)
+	if err != nil {
+		return nil, err
+	}
+	defer unlock()
 	data, err := readConfig(path)
 	if err != nil {
 		return nil, err
