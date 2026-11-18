@@ -7,7 +7,7 @@
 > in `plans/README.md` — unless a reviewer dispatched you and told you they
 > maintain the index.
 >
-> **Drift check (run first)**: `git diff --stat 8928536..HEAD -- .goreleaser.yaml internal/buildinfo/buildinfo.go internal/cli/cli.go brainconfig/config.go cmd/workctl/main.go .github/workflows/ README.md`
+> **Drift check (run first)**: `git diff --stat d4d3d48..HEAD -- .goreleaser.yaml internal/buildinfo/buildinfo.go internal/cli/cli.go brainconfig/config.go cmd/workctl/main.go .github/workflows/ README.md`
 > These are the files `CLAUDE.md` describes. If any changed, re-check each fact
 > in Step 1 against the live files before writing; on a mismatch, treat it as a
 > STOP condition.
@@ -20,7 +20,7 @@
 - **Depends on**: none. Plan 002 also edits `README.md`, but this plan
   doesn't touch it, so they can run in either order.
 - **Category**: dx
-- **Planned at**: commit `8928536`, 2026-11-18
+- **Planned at**: commit `d4d3d48`, 2026-11-18 (refreshed after plans 001 and 002 merged; first written at `8928536`)
 
 ## Why this matters
 
@@ -42,9 +42,9 @@ nor `AGENTS.md` today.
 
 ## Current state
 
-Each fact below was checked by the advisor at `8928536`. Step 1 re-checks them.
+Each fact below was checked by the advisor at `d4d3d48`. Step 1 re-checks them.
 
-- **Commands** (`README.md`, section "## Development", lines 393-406):
+- **Commands** (`README.md`, section "## Development", lines 401-414):
   `gofmt -l .`, `go vet ./...`, `go test -race ./...`, `go mod tidy -diff`,
   `go run ./cmd/brainctl version`. CI also runs golangci-lint (no config file in
   the repo, so it uses the defaults), govulncheck, a cross-build plus `go vet`
@@ -68,7 +68,7 @@ Each fact below was checked by the advisor at `8928536`. Step 1 re-checks them.
   manifests to `cerebrai-app/scoop-bucket`. Those files are generated, so don't
   edit them by hand.
 - **Config file contract** (`README.md` "## Writing an extension", lines
-  289-386, and the package doc in `brainconfig/config.go:1-58`): `brainconfig`
+  297-394, and the package doc in `brainconfig/config.go:1-58`): `brainconfig`
   is the module's only public package. Third-party extensions import it, and
   extensions in other languages implement the same rules by hand: the lock on
   `.config.yaml.lock` (flock / LockFileEx) and replacing the file through a
