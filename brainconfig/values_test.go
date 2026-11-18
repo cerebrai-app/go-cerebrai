@@ -522,3 +522,63 @@ func TestMergeKeys(t *testing.T) {
 		t.Errorf("set defaults/color: %v", err)
 	}
 }
+
+// A quoted "<<" is an ordinary key, not YAML's merge key: it can be read,
+// removed, and does not stop changes to the mapping that holds it.
+func TestQuotedMergeKeyIsAPlainKey(t *testing.T) {
+	scope := ExtensionSettings(workctlID, 1)
+	for _, quoted := range []string{`"<<"`, `'<<'`} {
+		path := writeConfig(t, withSettings("    "+quoted+": x\n"))
+		cfg, err := Load(path)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if got, err := cfg.Get(scope, "<<"); err != nil || got != "x" {
+			t.Errorf("%s: get << = %q, %v; want x", quoted, got, err)
+		}
+		if _, err := Set(path, scope, "color", "blue"); err != nil {
+			t.Errorf("%s: set color: %v", quoted, err)
+		}
+		if _, err := Unset(path, scope, "<<"); err != nil {
+			t.Errorf("%s: unset <<: %v", quoted, err)
+		}
+		if got, want := readFile(t, path), withSettings("    color: blue\n"); got != want {
+			t.Errorf("%s: file = %q, want %q", quoted, got, want)
+		}
+	}
+
+	// Setting a key named << writes it quoted, and later changes still work.
+	path := writeConfig(t, "schema_version: 1\n")
+	for _, kv := range [][2]string{{"<<", "x"}, {"owner", "me"}} {
+		if _, err := Set(path, TopLevel, kv[0], kv[1]); err != nil {
+			t.Fatalf("set %s: %v", kv[0], err)
+		}
+	}
+	if got, want := readFile(t, path), "schema_version: 1\n\"<<\": x\nowner: me\n"; got != want {
+		t.Errorf("file = %q, want %q", got, want)
+	}
+	if _, err := Load(path); err != nil {
+		t.Errorf("load: %v", err)
+	}
+}
+
+// A real merge key (<< written plainly) is not a key of its own: getting <<
+// finds nothing, and unsetting it is refused like any change to that mapping.
+func TestMergeKeyIsNotAKey(t *testing.T) {
+	const body = "    defaults: &d {color: blue}\n    profile:\n      <<: *d\n"
+	path := writeConfig(t, withSettings(body))
+	cfg, err := Load(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	scope := ExtensionSettings(workctlID, 1)
+	if _, err := cfg.Get(scope, "profile/<<"); !errors.Is(err, ErrNotSet) {
+		t.Errorf("get profile/<<: %v, want ErrNotSet", err)
+	}
+	if _, err := Unset(path, scope, "profile/<<"); err == nil || !strings.Contains(err.Error(), "uses a YAML merge key (<<)") {
+		t.Errorf("unset profile/<<: %v", err)
+	}
+	if got, want := readFile(t, path), withSettings(body); got != want {
+		t.Errorf("file changed to %q", got)
+	}
+}

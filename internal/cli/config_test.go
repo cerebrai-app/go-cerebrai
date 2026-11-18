@@ -434,3 +434,21 @@ func TestConfigGetEscapesAtTerminal(t *testing.T) {
 		t.Errorf("terminal, mapping: %q", stdout)
 	}
 }
+
+// brainctl config can set a key named <<, which is written quoted, and the
+// file can still be changed afterwards.
+func TestBrainctlConfigQuotedMergeKey(t *testing.T) {
+	project(t)
+	writeBrainConfig(t, "schema_version: 1\n")
+	for _, args := range [][]string{{"config", "set", "<<", "x"}, {"config", "set", "owner", "me"}} {
+		if code, _, stderr := runBrainctl(args...); code != 0 || stderr != "" {
+			t.Errorf("%q: got %d, %q", args, code, stderr)
+		}
+	}
+	if code, stdout, stderr := runBrainctl("config", "get", "<<"); code != 0 || stdout != "x\n" {
+		t.Errorf("get <<: got %d, %q, %q", code, stdout, stderr)
+	}
+	if got, want := brainConfig(t), "schema_version: 1\n\"<<\": x\nowner: me\n"; got != want {
+		t.Errorf("config = %q, want %q", got, want)
+	}
+}

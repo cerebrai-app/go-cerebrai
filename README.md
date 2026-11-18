@@ -24,20 +24,28 @@ its own to version. The exception is `brainconfig`, which other programs import 
 ### Homebrew (macOS and Linux)
 
 ```sh
-brew install cerebrai-app/tap/brainctl
-brew install cerebrai-app/tap/workctl
+brew tap cerebrai-app/tap
+brew install --cask cerebrai-app/tap/brainctl
+brew install --cask cerebrai-app/tap/workctl
 ```
 
-`brew upgrade` picks up new releases. The binaries are not signed by Apple, so the cask clears
-macOS's quarantine flag on install; without that, macOS would refuse to run them.
+Homebrew only loads taps you have trusted; installing a cask by its full name, as above, trusts
+that one cask. To trust the whole tap and use the short names, see
+[homebrew-tap](https://github.com/cerebrai-app/homebrew-tap#install). Run `brew update` and then
+`brew upgrade --cask brainctl workctl` to pick up new releases. The binaries are not signed by
+Apple, so the cask clears macOS's quarantine flag on install; without that, macOS would refuse to
+run them.
 
 ### Scoop (Windows)
 
 ```powershell
-scoop bucket add cerebrai-app https://github.com/cerebrai-app/scoop-bucket
-scoop install cerebrai-app/brainctl
-scoop install cerebrai-app/workctl
+scoop bucket add cerebrai https://github.com/cerebrai-app/scoop-bucket
+scoop install cerebrai/brainctl
+scoop install cerebrai/workctl
 ```
+
+`cerebrai` is the local name for the bucket; adding it is the decision to trust it. See
+[scoop-bucket](https://github.com/cerebrai-app/scoop-bucket#install) for updating and removing.
 
 ### Prebuilt binaries
 
