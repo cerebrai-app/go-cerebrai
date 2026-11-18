@@ -1,5 +1,8 @@
 name: CI
 
+# Checks every push to main and every pull request with the Go actions from
+# cerebrai-app/actions, one job each, so they run in parallel.
+
 on:
   push:
     branches: [main]
@@ -15,8 +18,53 @@ concurrency:
   cancel-in-progress: ${{ github.event_name == 'pull_request' }}
 
 jobs:
-  ci:
-    uses: cerebrai-app/actions/.github/workflows/go-ci.yml@1719847bdd974c534871de3d9cb4ba4c427226f9 # v3.4.0
-    with:
-      main-packages: ./cmd/brainctl ./cmd/workctl
-      smoke-test-args: version
+  lint:
+    name: Lint
+    runs-on: self-hosted
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - uses: cerebrai-app/actions/go-lint@91f86f0569c8da94a882dd5b3fc57f1dae2ced4c # v4.0.0
+
+  # The latest stable Go with the race detector and a smoke test, and exactly
+  # the go version from go.mod, so the declared minimum is a tested one.
+  test:
+    name: Test (${{ matrix.go }})
+    runs-on: self-hosted
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - go: stable
+            race: 'true'
+          - go: go.mod
+            race: 'false'
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - uses: cerebrai-app/actions/go-test@91f86f0569c8da94a882dd5b3fc57f1dae2ced4c # v4.0.0
+        with:
+          go-version: ${{ matrix.go }}
+          race: ${{ matrix.race }}
+          main-packages: ./cmd/brainctl ./cmd/workctl
+          smoke-test-args: ${{ matrix.go == 'stable' && 'version' || '' }}
+
+  cross-build:
+    name: Cross-build
+    runs-on: self-hosted
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - uses: cerebrai-app/actions/go-cross-build@91f86f0569c8da94a882dd5b3fc57f1dae2ced4c # v4.0.0
+
+  govulncheck:
+    name: govulncheck
+    runs-on: self-hosted
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - uses: cerebrai-app/actions/govulncheck@91f86f0569c8da94a882dd5b3fc57f1dae2ced4c # v4.0.0
