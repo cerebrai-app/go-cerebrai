@@ -1,6 +1,7 @@
-# GoReleaser config for brainctl and workctl, used by the shared go-release.yml
-# workflow (see .github/workflows/release.yml). Both programs share the tag's
-# version. The workflow publishes the GitHub Release itself, then reruns
+# GoReleaser config for brainctl and workctl, used by the go-release-build and
+# go-release-publish actions from cerebrai-app/actions (see
+# .github/workflows/release.yml). Both programs share the tag's version.
+# go-release-publish publishes the GitHub Release itself, then reruns
 # GoReleaser to push the Homebrew casks and Scoop manifests, so the archives
 # must rebuild byte for byte (mod_timestamp, -trimpath, fixed archive mtimes).
 # Check changes with `goreleaser check` and
@@ -34,7 +35,7 @@ archives:
       - { goos: windows, formats: [zip] }
     wrap_in_directory: true
     # Fixed timestamps, so a rebuild of the same commit gives byte-identical
-    # archives (the publish job relies on it; see go-release.yml).
+    # archives (go-release-publish relies on it).
     builds_info:
       mtime: "{{ .CommitDate }}"
     files:
@@ -52,7 +53,7 @@ checksum:
 snapshot:
   version_template: 0.0.0-dev
 
-# The shared release workflow creates the GitHub Release itself, so
+# go-release-publish creates the GitHub Release itself, so
 # GoReleaser only builds and never needs a token that can write.
 changelog:
   disable: true
