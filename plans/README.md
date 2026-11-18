@@ -9,7 +9,7 @@ done.
 
 | Plan | Title | Priority | Effort | Depends on | Status |
 |------|-------|----------|--------|------------|--------|
-| [001](001-quoted-merge-key-is-a-plain-key.md) | A quoted `"<<"` key no longer blocks config edits | P2 | S | — | TODO |
+| [001](001-quoted-merge-key-is-a-plain-key.md) | A quoted `"<<"` key no longer blocks config edits | P2 | S | — | DONE: reviewed and approved 2026-11-18; commit `ddc2379` on local branch `advisor/001-quoted-merge-key`, not merged yet |
 | [002](002-align-install-docs-with-tap-and-bucket.md) | The README's Homebrew and Scoop instructions match the tap and bucket repositories | P3 | S | — | TODO |
 | [003](003-add-claude-md.md) | A `CLAUDE.md` records the commands and the contracts other repositories depend on | P3 | S | — | TODO |
 
