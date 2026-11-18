@@ -23,7 +23,7 @@ concurrency:
 
 jobs:
   renovate:
-    runs-on: self-hosted
+    runs-on: ubuntu-latest
     steps:
       - uses: cerebrai-app/actions/renovate@da96b5c774508e239ab5f47a44af71a77381484c # v3.3.1
         with:
