@@ -18,8 +18,9 @@ go run ./cmd/brainctl version
 
 CI (`.github/workflows/ci.yml`) also runs golangci-lint with its default settings, govulncheck,
 a cross-build and `go vet` for every release platform, and the tests on the `go` version in
-`go.mod`, through the shared `go-ci.yml` from cerebrai-app/actions. Change those checks there,
-not here.
+`go.mod`, through the Go actions from cerebrai-app/actions (`go-lint`, `go-test`,
+`go-cross-build`, `govulncheck`). Change what those checks do there, not here; `ci.yml` only
+picks which run.
 
 ## Contracts other repositories depend on
 

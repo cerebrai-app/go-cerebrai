@@ -1,11 +1,10 @@
 name: Release
 
-# Pushing a tag like v0.1.0 builds brainctl and workctl for each platform with
-# GoReleaser (.goreleaser.yaml) and publishes them together in one GitHub
-# Release (see the shared go-release.yml). Every pull request builds a snapshot
-# and checks the tap app (its installation on homebrew-tap and scoop-bucket,
-# and the RELEASE_APP_* secrets), and publishes nothing, so a broken release
-# shows up before a tag.
+# A tag like v0.1.0 builds every program for each platform with GoReleaser
+# (.goreleaser.yaml) and publishes them in one GitHub Release, then pushes the
+# Homebrew casks and Scoop manifests. Every pull request builds a snapshot and
+# checks the tap app, and publishes nothing, so a broken release shows up
+# before a tag.
 on:
   push:
     tags: ["v*"]
@@ -14,21 +13,52 @@ on:
 permissions:
   contents: read
 
-# One run per PR (or per branch/tag for pushes). A new commit on a PR cancels
-# its previous run; runs on main and on tags are never cancelled.
 concurrency:
   group: ${{ github.workflow }}-${{ github.event.pull_request.number || github.ref }}
   cancel-in-progress: ${{ github.event_name == 'pull_request' }}
 
 jobs:
-  release:
-    uses: cerebrai-app/actions/.github/workflows/go-release.yml@1719847bdd974c534871de3d9cb4ba4c427226f9 # v3.4.0
+  build:
+    name: Test and build
+    runs-on: self-hosted
+    outputs:
+      go-version: ${{ steps.build.outputs.go-version }}
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          fetch-depth: 0 # GoReleaser and the default-branch check need the history and tags
+          persist-credentials: false
+      - id: build
+        uses: cerebrai-app/actions/go-release-build@91f86f0569c8da94a882dd5b3fc57f1dae2ced4c # v4.0.0
+
+  tap-app:
+    name: Check tap app
+    runs-on: self-hosted
+    permissions: {}
+    steps:
+      - uses: cerebrai-app/actions/go-release-check-tap-app@91f86f0569c8da94a882dd5b3fc57f1dae2ced4c # v4.0.0
+        with:
+          tap-repositories: homebrew-tap,scoop-bucket
+          app-client-id: ${{ secrets.RELEASE_APP_CLIENT_ID }}
+          app-private-key: ${{ secrets.RELEASE_APP_PRIVATE_KEY }}
+
+  publish:
+    name: Publish release
+    needs: [build, tap-app]
+    if: ${{ github.ref_type == 'tag' }}
+    runs-on: self-hosted
     permissions:
       contents: write # create the release
       id-token: write # sign the build attestations
       attestations: write # store them
-    with:
-      tap-repositories: homebrew-tap,scoop-bucket
-    secrets:
-      tap-app-client-id: ${{ secrets.RELEASE_APP_CLIENT_ID }}
-      tap-app-private-key: ${{ secrets.RELEASE_APP_PRIVATE_KEY }}
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          fetch-depth: 0
+          persist-credentials: false
+      - uses: cerebrai-app/actions/go-release-publish@91f86f0569c8da94a882dd5b3fc57f1dae2ced4c # v4.0.0
+        with:
+          go-version: ${{ needs.build.outputs.go-version }}
+          tap-repositories: homebrew-tap,scoop-bucket
+          app-client-id: ${{ secrets.RELEASE_APP_CLIENT_ID }}
+          app-private-key: ${{ secrets.RELEASE_APP_PRIVATE_KEY }}

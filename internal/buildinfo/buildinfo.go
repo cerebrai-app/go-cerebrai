@@ -2,8 +2,7 @@
 //
 // It is shared by the programs under cmd/, which all have the same version.
 //
-// Release builds link the version in (cerebrai-app/actions go-release.yml does
-// this from the tag):
+// Release builds link the version in (.goreleaser.yaml does this from the tag):
 //
 //	go build -ldflags "-X github.com/cerebrai-app/go-cerebrai/internal/buildinfo.version=1.2.3"
 //

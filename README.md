@@ -408,10 +408,10 @@ go mod tidy -diff
 go run ./cmd/brainctl version
 ```
 
-CI ([`.github/workflows/ci.yml`](.github/workflows/ci.yml)) runs these through the shared
-`go-ci.yml` workflow from [cerebrai-app/actions](https://github.com/cerebrai-app/actions), along
-with golangci-lint, govulncheck, a build and `go vet` for every release platform, and the tests
-on the `go` version from go.mod.
+CI ([`.github/workflows/ci.yml`](.github/workflows/ci.yml)) runs these through the Go actions
+from [cerebrai-app/actions](https://github.com/cerebrai-app/actions) (`go-lint`, `go-test`,
+`go-cross-build` and `govulncheck`), along with golangci-lint, govulncheck, a build and `go vet`
+for every release platform, and the tests on the `go` version from go.mod.
 
 ## Releasing
 
