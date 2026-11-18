@@ -21,8 +21,8 @@ commands:
           in %[3]s: a value as it is, a mapping or list as YAML
   set     set the value at <key path>, as a string, creating the mappings
           on the way that are missing; a value of - is read from standard
-          input, without echo at a terminal, so a secret stays out of the
-          shell history and process list (to store a literal -, pipe it in:
+          input, without echo at a terminal, for a long value or one to
+          keep out of the shell history (to store a literal -, pipe it in:
           printf - | %[1]s config set <key path> -)
   unset   remove the key at <key path>, with its value; nothing to do if
           it is not set
@@ -137,9 +137,9 @@ var (
 )
 
 // readValue reads the value for config set <keyPath> -: at a terminal, after
-// a prompt on stderr and without echo, so a secret is not shown; otherwise
-// all of the standard input, less one trailing newline, so the output of echo
-// or a password manager can be piped in.
+// a prompt on stderr and without echo, so it is not shown on screen;
+// otherwise all of the standard input, less one trailing newline, so a file
+// or the output of echo can be redirected or piped in.
 func readValue(keyPath string, stderr io.Writer) (string, error) {
 	if stdinIsTerminal() {
 		_, _ = fmt.Fprintf(stderr, "Value for %s: ", keyPath)

@@ -113,11 +113,15 @@ release (a higher `schema_version`) is an error, so `init` stops before download
 Top-level keys `brainctl` doesn't know, whether from a newer release or your own, are ignored,
 and kept when an extension edits the file.
 
-`brainctl init` makes `.brain` and `config.yaml` readable by you alone (`0700` and `0600`), since
-extensions may keep secrets in their settings. Loosen them by hand to share the file; later edits
-keep whatever permissions it has. That is on Linux and macOS: on Windows these permissions only set
-the read-only flag, and who can read the file depends on the access rules `.brain` inherits from
-its parent folder, so keep secrets there only if that folder is yours alone.
+**`config.yaml` is not for secrets.** It is meant to be committed or backed up with the brain's
+data, so anyone who can read the repository or the backup can read it. Keep API keys, tokens and
+passwords in environment variables or a password manager, and have extensions read them from
+there.
+
+`brainctl init` makes `.brain` and `config.yaml` readable by you alone (`0700` and `0600`). Loosen
+them by hand to share the file; later edits keep whatever permissions it has. That is on Linux and
+macOS: on Windows these permissions only set the read-only flag, and who can read the file depends
+on the access rules `.brain` inherits from its parent folder.
 
 Every edit replaces the file whole, through a temporary file, so a failed write never leaves it
 half-written, and a new file only appears once it is complete. The config can be a symlink, say
@@ -232,8 +236,7 @@ mapping.
 ```console
 $ workctl config set env/client_id abc123
 $ workctl config set env/debug true
-$ workctl config set env/client_secret -
-Value for env/client_secret:
+$ workctl config set prompts/system - < system-prompt.txt
 $ workctl config get env/client_id
 abc123
 $ workctl config get env
@@ -260,11 +263,13 @@ owner: me
 - `set` creates the mappings on the way that are missing, and stores the value as a string: one
   that would read as another type, like `true` or `8080`, is quoted so it reads back the same.
   Setting the value a key already has leaves the file alone.
-- A value of `-` is read from standard input, so a secret stays out of your shell history and
-  other users' process lists. At a terminal, `set` prompts for it and doesn't echo what you type;
-  otherwise it reads all of standard input, less one trailing newline, so you can pipe it in:
-  `pass show example/api | workctl config set env/client_secret -`. To set a literal `-`, pipe it
-  in the same way (`printf - | workctl config set key -`).
+- A value of `-` is read from standard input: handy for a long or multi-line value, or one you'd
+  rather keep out of your shell history and the process list. At a terminal, `set` prompts for it
+  and doesn't echo what you type; otherwise it reads all of standard input, less one trailing
+  newline, so you can redirect a file or pipe a command into it:
+  `workctl config set prompts/system - < system-prompt.txt`. To set a literal `-`, pipe it in the
+  same way (`printf - | workctl config set key -`). The value still goes into `config.yaml`, so
+  this doesn't make it a place for secrets.
 - `set` won't lose data: it never replaces a mapping or a list with a value, and a key path can't
   go through a value that isn't a mapping. `workctl` can't change `schema_version`, which it
   manages, and `name` and `bin` must be valid.
@@ -301,6 +306,9 @@ executable. The rules:
   absolute path. Never replace a `name` or `bin` the user set.
 - **Find the file the same way.** The brain home is `$BRAIN_HOME` if set (an existing
   directory; a relative path is taken from the current directory), otherwise the current directory.
+- **No secrets in your settings.** The file is committed or backed up with the brain's data. Read
+  API keys, tokens and passwords from environment variables or the system's credential store
+  instead.
 - **Write only your own key.** Don't change the top-level keys or other extensions' settings, and
   keep content you don't understand, including keys you don't know, at the top level or in your
   own settings: ignore them rather than rejecting the file. Never create the file: if it is
