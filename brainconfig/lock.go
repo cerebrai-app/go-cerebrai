@@ -36,15 +36,18 @@ func lockPath(path string) string {
 
 // lockConfig takes the lock for the config file at path, waiting up to
 // lockTimeout for whoever holds it, and returns the function that releases it.
-// The lock file is made if missing, with the config file's permissions, or
-// owner-only if there is no config file yet.
+// The lock file is made if missing, with the config file's permissions plus
+// read and write for its owner, or owner-only if there is no config file yet.
+// It is opened read-only, which is all the lock needs, so a read-only lock
+// file, such as one an older release made beside a read-only config, still
+// works.
 func lockConfig(path string) (unlock func(), err error) {
 	mode := fs.FileMode(0o600)
 	if info, err := os.Stat(path); err == nil {
-		mode = info.Mode().Perm()
+		mode |= info.Mode().Perm()
 	}
 	lp := lockPath(path)
-	f, err := os.OpenFile(lp, os.O_RDWR|os.O_CREATE, mode)
+	f, err := os.OpenFile(lp, os.O_RDONLY|os.O_CREATE, mode)
 	if err != nil {
 		return nil, fmt.Errorf("locking %s: %w", path, err)
 	}

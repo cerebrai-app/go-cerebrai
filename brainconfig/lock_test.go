@@ -240,3 +240,31 @@ func TestCreateFileKeepsExisting(t *testing.T) {
 		t.Errorf("left %q", names)
 	}
 }
+
+// A read-only config still gets a lock file its owner can use, so edits keep
+// working after the first; and a read-only lock file, as an older release
+// could make, still locks.
+func TestLockWithReadOnlyFiles(t *testing.T) {
+	if runtime.GOOS == "windows" {
+		t.Skip("Windows has no Unix permissions")
+	}
+	path := writeConfig(t, brainOnly)
+	if err := os.Chmod(path, 0o444); err != nil {
+		t.Fatal(err)
+	}
+	for i := range 3 {
+		if _, err := Set(path, TopLevel, fmt.Sprintf("k%d", i), "v"); err != nil {
+			t.Fatalf("Set %d: %v", i, err)
+		}
+	}
+	if info, err := os.Stat(lockPath(path)); err != nil || info.Mode().Perm() != 0o644 {
+		t.Errorf("lock file mode = %v, %v; want 0644", info.Mode().Perm(), err)
+	}
+
+	if err := os.Chmod(lockPath(path), 0o444); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := Set(path, TopLevel, "k9", "v"); err != nil {
+		t.Errorf("Set with a read-only lock file: %v", err)
+	}
+}
