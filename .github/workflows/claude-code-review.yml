@@ -11,6 +11,9 @@ on:
 # doesn't stop the other.
 jobs:
   ponytail-review:
+    # Skip PRs opened by bots such as Renovate: claude-code-action refuses bot
+    # actors, and their PR text (e.g. upstream release notes) should not reach Claude.
+    if: ${{ github.event.pull_request.user.type != 'Bot' }}
     runs-on: self-hosted
     permissions:
       contents: read
@@ -23,6 +26,9 @@ jobs:
           claude-code-oauth-token: ${{ secrets.CLAUDE_CODE_OAUTH_TOKEN }}
 
   claude-review:
+    # Skip PRs opened by bots such as Renovate: claude-code-action refuses bot
+    # actors, and their PR text (e.g. upstream release notes) should not reach Claude.
+    if: ${{ github.event.pull_request.user.type != 'Bot' }}
     runs-on: self-hosted
     permissions:
       contents: read
