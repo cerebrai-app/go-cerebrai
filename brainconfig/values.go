@@ -316,7 +316,10 @@ func setIn(m *yaml.Node, keys []string, value string) (changed bool, err error) 
 	case !isNull(v) && v.Value == value:
 		return false, nil
 	default:
-		*v = yaml.Node{Kind: yaml.ScalarNode, Tag: "!!str", Value: value,
+		// Keep an anchor (a: &x old): other keys that refer to it (b: *x)
+		// take the new value too, as the alias says, rather than refer to
+		// nothing and make the file unreadable.
+		*v = yaml.Node{Kind: yaml.ScalarNode, Tag: "!!str", Value: value, Anchor: v.Anchor,
 			HeadComment: v.HeadComment, LineComment: v.LineComment, FootComment: v.FootComment}
 	}
 	return true, nil
@@ -335,11 +338,29 @@ func unsetIn(m *yaml.Node, keys []string) (changed bool, err error) {
 	}
 	for i := 0; i+1 < len(parent.Content); i += 2 {
 		if parent.Content[i].Value == keys[last] {
+			if anchor := findAnchor(parent.Content[i : i+2]...); anchor != "" {
+				return false, fmt.Errorf("%s holds the anchor &%s, which other keys may refer to as *%s, so removing it "+
+					"could make the file unreadable: edit it by hand", strings.Join(keys, "/"), anchor, anchor)
+			}
 			parent.Content = slices.Delete(parent.Content, i, i+2)
 			return true, nil
 		}
 	}
 	return false, nil
+}
+
+// findAnchor is the first anchor (&name) in the nodes or anything in them,
+// or "".
+func findAnchor(nodes ...*yaml.Node) string {
+	for _, n := range nodes {
+		if n.Anchor != "" {
+			return n.Anchor
+		}
+		if a := findAnchor(n.Content...); a != "" {
+			return a
+		}
+	}
+	return ""
 }
 
 // isNull reports whether n is a null scalar: a key with no value, null or ~.

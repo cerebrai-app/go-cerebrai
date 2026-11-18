@@ -398,3 +398,70 @@ func TestGetUnderNull(t *testing.T) {
 		t.Errorf("env: %q, %v", got, err)
 	}
 }
+
+// Anchors (&x) survive set: keys that refer to them (*x) take the new value,
+// as the alias says, and the file stays readable.
+func TestSetKeepsAnchors(t *testing.T) {
+	for _, tt := range []struct{ name, before, keyPath, value, after string }{
+		{"anchored value", "    a: &x old\n    b: *x\n", "a", "new",
+			"    a: &x new\n    b: *x\n"},
+		{"anchored null filled in as a mapping", "    env: &e\n    copy: *e\n", "env/k", "v",
+			"    env: &e\n      k: v\n    copy: *e\n"},
+	} {
+		t.Run(tt.name, func(t *testing.T) {
+			path := writeConfig(t, withSettings(tt.before))
+			if _, err := Set(path, ExtensionSettings(workctlID, 1), tt.keyPath, tt.value); err != nil {
+				t.Fatal(err)
+			}
+			if got, want := readFile(t, path), withSettings(tt.after); got != want {
+				t.Errorf("file = %q, want %q", got, want)
+			}
+			cfg, err := Load(path)
+			if err != nil {
+				t.Fatalf("the file no longer reads: %v", err)
+			}
+			if got, err := cfg.Get(ExtensionSettings(workctlID, 1), tt.keyPath); err != nil || got != tt.value {
+				t.Errorf("reads back as %q, %v", got, err)
+			}
+		})
+	}
+	// The alias follows the new value.
+	path := writeConfig(t, withSettings("    a: &x old\n    b: *x\n"))
+	if _, err := Set(path, ExtensionSettings(workctlID, 1), "a", "new"); err != nil {
+		t.Fatal(err)
+	}
+	cfg, err := Load(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var s struct {
+		B string `yaml:"b"`
+	}
+	if _, err := cfg.DecodeExtension(workctlID, 1, &s); err != nil || s.B != "new" {
+		t.Errorf("b = %q, %v; want new", s.B, err)
+	}
+}
+
+// unset refuses to remove an anchor, or anything holding one: aliases to it
+// would then refer to nothing.
+func TestUnsetRefusesAnchors(t *testing.T) {
+	for _, keyPath := range []string{"a", "env", "env/inner"} {
+		content := withSettings("    a: &x foo\n    b: *x\n    env:\n      inner: &y {k: v}\n    c: *y\n")
+		path := writeConfig(t, content)
+		changed, err := Unset(path, ExtensionSettings(workctlID, 1), keyPath)
+		if err == nil || changed || !strings.Contains(err.Error(), "holds the anchor &") {
+			t.Errorf("%s: %v, %v", keyPath, changed, err)
+		}
+		if got := readFile(t, path); got != content {
+			t.Errorf("%s: file changed to %q", keyPath, got)
+		}
+	}
+	// A key whose value only refers to an anchor can go.
+	path := writeConfig(t, withSettings("    a: &x foo\n    b: *x\n"))
+	if changed, err := Unset(path, ExtensionSettings(workctlID, 1), "b"); err != nil || !changed {
+		t.Errorf("unset b: %v, %v", changed, err)
+	}
+	if _, err := Load(path); err != nil {
+		t.Errorf("the file no longer reads: %v", err)
+	}
+}

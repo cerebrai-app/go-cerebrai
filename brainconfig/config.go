@@ -314,10 +314,20 @@ func Path(dir string) string {
 //
 // The file and its directory are made readable by their owner only (0600 and
 // 0700), since extensions may keep secrets in their settings; loosen them by
-// hand to share the file. Later edits keep the file's permissions.
+// hand to share the file. Later edits keep the file's permissions. When Init
+// makes the directory, it also writes a .gitignore there for the lock file
+// and temporary files, so committing the directory with the brain's data
+// leaves them out.
 func Init(path string) (created bool, err error) {
-	if err := os.MkdirAll(filepath.Dir(path), 0o700); err != nil {
+	dir := filepath.Dir(path)
+	_, statErr := os.Stat(dir)
+	if err := os.MkdirAll(dir, 0o700); err != nil {
 		return false, err
+	}
+	if errors.Is(statErr, fs.ErrNotExist) {
+		if err := writeGitignore(dir, filepath.Base(path)); err != nil {
+			return false, err
+		}
 	}
 	unlock, err := lockConfig(path)
 	if err != nil {
@@ -355,6 +365,30 @@ func Init(path string) (created bool, err error) {
 	}
 	_, err = Load(path)
 	return false, err
+}
+
+// writeGitignore writes a .gitignore in dir, the config directory Init has
+// just made, for the lock file and any temporary file a crash leaves beside
+// the config file called name: the directory is meant to be committed with
+// the brain's data, and they are not. An existing .gitignore is kept.
+func writeGitignore(dir, name string) error {
+	path := filepath.Join(dir, ".gitignore")
+	content := fmt.Sprintf("# Written by brainctl init: its lock file, and temporary files a crash can leave.\n.%s.lock\n.%s.*.tmp\n", name, name)
+	f, err := os.OpenFile(path, os.O_WRONLY|os.O_CREATE|os.O_EXCL, 0o644)
+	if errors.Is(err, fs.ErrExist) {
+		return nil
+	}
+	if err != nil {
+		return err
+	}
+	_, err = f.WriteString(content)
+	if closeErr := f.Close(); err == nil {
+		err = closeErr
+	}
+	if err != nil {
+		return fmt.Errorf("writing %s: %w", path, err)
+	}
+	return nil
 }
 
 // createFile creates the file at path, owner-only, holding data, and fails
@@ -523,11 +557,12 @@ func editConfig(path string, data []byte, edit func(root *yaml.Node) error) erro
 }
 
 // makeBlock makes n an empty node of kind and tag if it is anything else,
-// such as a key with no value ("extensions:") or null, keeping its comments,
-// and sets block style, even if it was written in flow style ({} or []).
+// such as a key with no value ("extensions:") or null, keeping its comments
+// and its anchor, so aliases to it still have something to refer to, and
+// sets block style, even if it was written in flow style ({} or []).
 func makeBlock(n *yaml.Node, kind yaml.Kind, tag string) {
 	if n.Kind != kind {
-		*n = yaml.Node{Kind: kind, Tag: tag,
+		*n = yaml.Node{Kind: kind, Tag: tag, Anchor: n.Anchor,
 			HeadComment: n.HeadComment, LineComment: n.LineComment, FootComment: n.FootComment}
 	}
 	n.Style = 0

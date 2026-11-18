@@ -3,6 +3,7 @@ package brainconfig
 import (
 	"errors"
 	"os"
+	"os/exec"
 	"path/filepath"
 	"runtime"
 	"strings"
@@ -429,5 +430,63 @@ func TestInitDanglingSymlink(t *testing.T) {
 	}
 	if _, err := os.Stat(target); err == nil {
 		t.Error("Init made the symlink's target")
+	}
+}
+
+// Init writes a .gitignore for the lock and temporary files when it makes the
+// directory, so committing it with the brain's data leaves them out; git
+// itself agrees.
+func TestInitWritesGitignore(t *testing.T) {
+	home := t.TempDir()
+	path := Path(home)
+	if _, err := Init(path); err != nil {
+		t.Fatal(err)
+	}
+	want := "# Written by brainctl init: its lock file, and temporary files a crash can leave.\n.config.yaml.lock\n.config.yaml.*.tmp\n"
+	if got := readFile(t, filepath.Join(filepath.Dir(path), ".gitignore")); got != want {
+		t.Errorf(".gitignore = %q, want %q", got, want)
+	}
+	if git, err := exec.LookPath("git"); err == nil {
+		if out, err := exec.Command(git, "-C", home, "init", "-q").CombinedOutput(); err != nil {
+			t.Fatalf("git init: %v: %s", err, out)
+		}
+		for name, ignored := range map[string]bool{
+			".brain/.config.yaml.lock": true, ".brain/.config.yaml.123.tmp": true,
+			".brain/config.yaml": false, ".brain/.gitignore": false,
+		} {
+			err := exec.Command(git, "-C", home, "check-ignore", "-q", name).Run()
+			if got := err == nil; got != ignored {
+				t.Errorf("git check-ignore %s = %v, want %v", name, got, ignored)
+			}
+		}
+	}
+}
+
+// An existing directory, or an existing .gitignore, is the user's: Init
+// leaves it alone.
+func TestInitKeepsUsersGitignore(t *testing.T) {
+	path := Path(t.TempDir())
+	if err := os.MkdirAll(filepath.Dir(path), 0o700); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := Init(path); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := os.Stat(filepath.Join(filepath.Dir(path), ".gitignore")); err == nil {
+		t.Error("wrote a .gitignore in a directory it did not make")
+	}
+
+	if err := writeGitignore(filepath.Dir(path), FileName); err != nil {
+		t.Fatal(err)
+	}
+	gi := filepath.Join(filepath.Dir(path), ".gitignore")
+	if err := os.WriteFile(gi, []byte("mine\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if err := writeGitignore(filepath.Dir(path), FileName); err != nil {
+		t.Fatal(err)
+	}
+	if got := readFile(t, gi); got != "mine\n" {
+		t.Errorf(".gitignore changed to %q", got)
 	}
 }

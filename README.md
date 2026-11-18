@@ -126,8 +126,9 @@ Programs that change the file at the same moment, say several extensions' `init`
 script, take turns: each holds a lock on `.config.yaml.lock`, beside the config, from reading the
 file until it has replaced it. The lock is the operating system's (`flock`, or `LockFileEx` on
 Windows), so a crashed program never leaves it held; a change that waits over 10 seconds for one
-gives up with an error. The lock file stays in `.brain`: if you commit `.brain`, add
-`.config.yaml.lock` and `.config.yaml.*.tmp` to your `.gitignore`.
+gives up with an error. The lock file stays in `.brain`. When `brainctl init` makes `.brain`, it
+also writes `.brain/.gitignore` listing `.config.yaml.lock` and `.config.yaml.*.tmp`, so committing
+`.brain` leaves them out; if `.brain` was already there, add them to your `.gitignore` yourself.
 
 `workctl` is an extension of `brainctl` and shares its config file. `workctl init` adds its
 settings under `extensions`, keyed by its ID `app.cerebrai.workctl`. Run `brainctl init` first:
@@ -268,6 +269,9 @@ owner: me
 - `unset` removes the key and its value: a mapping or list goes with everything in it, and a
   mapping it leaves empty is kept, as `{}`. Unsetting a key that isn't set does nothing and isn't
   an error, so it is safe to repeat.
+- YAML anchors you write by hand keep working: `set` keeps an anchor (`a: &x old`) on the value it
+  replaces, so keys that refer to it (`b: *x`) follow the new value, and `unset` won't remove an
+  anchor, or anything holding one, since what refers to it would then refer to nothing.
 - `workctl config` checks its settings first, as `init` does, and fails with "run workctl init
   first" if there are none yet. A failed `set` or `unset` changes nothing. Comments are kept,
   including one on a value replaced; a removed key's own comments go with it.

@@ -7,6 +7,7 @@ import (
 	"os"
 	"path/filepath"
 	"runtime"
+	"slices"
 	"strings"
 	"sync"
 	"testing"
@@ -221,7 +222,7 @@ func TestInitCreatesWholeFile(t *testing.T) {
 	if got := readFile(t, path); got != brainOnly {
 		t.Errorf("file = %q", got)
 	}
-	if names := dirEntries(t, filepath.Dir(path)); len(names) != 1 || names[0] != FileName {
+	if names := dirEntries(t, filepath.Dir(path)); !slices.Equal(names, []string{".gitignore", FileName}) {
 		t.Errorf("left %q", names)
 	}
 }
