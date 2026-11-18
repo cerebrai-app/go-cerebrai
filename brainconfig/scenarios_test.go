@@ -462,31 +462,37 @@ func TestInitWritesGitignore(t *testing.T) {
 	}
 }
 
-// An existing directory, or an existing .gitignore, is the user's: Init
-// leaves it alone.
-func TestInitKeepsUsersGitignore(t *testing.T) {
+// Init writes the .gitignore in a directory that was already there too, but
+// never replaces one the user has, and writes none when it fails.
+func TestInitGitignoreExistingDirectory(t *testing.T) {
 	path := Path(t.TempDir())
-	if err := os.MkdirAll(filepath.Dir(path), 0o700); err != nil {
+	dir := filepath.Dir(path)
+	if err := os.MkdirAll(dir, 0o700); err != nil {
 		t.Fatal(err)
 	}
 	if _, err := Init(path); err != nil {
 		t.Fatal(err)
 	}
-	if _, err := os.Stat(filepath.Join(filepath.Dir(path), ".gitignore")); err == nil {
-		t.Error("wrote a .gitignore in a directory it did not make")
+	if got := readFile(t, filepath.Join(dir, ".gitignore")); !strings.Contains(got, ".config.yaml.lock") {
+		t.Errorf(".gitignore = %q", got)
 	}
 
-	if err := writeGitignore(filepath.Dir(path), FileName); err != nil {
-		t.Fatal(err)
-	}
-	gi := filepath.Join(filepath.Dir(path), ".gitignore")
+	gi := filepath.Join(dir, ".gitignore")
 	if err := os.WriteFile(gi, []byte("mine\n"), 0o644); err != nil {
 		t.Fatal(err)
 	}
-	if err := writeGitignore(filepath.Dir(path), FileName); err != nil {
+	if _, err := Init(path); err != nil {
 		t.Fatal(err)
 	}
 	if got := readFile(t, gi); got != "mine\n" {
 		t.Errorf(".gitignore changed to %q", got)
+	}
+
+	bad := writeConfig(t, "schema_version: 2\n")
+	if _, err := Init(bad); err == nil {
+		t.Fatal("Init accepted a newer file")
+	}
+	if _, err := os.Stat(filepath.Join(filepath.Dir(bad), ".gitignore")); err == nil {
+		t.Error("a failed Init wrote a .gitignore")
 	}
 }

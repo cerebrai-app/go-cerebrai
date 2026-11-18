@@ -115,7 +115,9 @@ and kept when an extension edits the file.
 
 `brainctl init` makes `.brain` and `config.yaml` readable by you alone (`0700` and `0600`), since
 extensions may keep secrets in their settings. Loosen them by hand to share the file; later edits
-keep whatever permissions it has.
+keep whatever permissions it has. That is on Linux and macOS: on Windows these permissions only set
+the read-only flag, and who can read the file depends on the access rules `.brain` inherits from
+its parent folder, so keep secrets there only if that folder is yours alone.
 
 Every edit replaces the file whole, through a temporary file, so a failed write never leaves it
 half-written, and a new file only appears once it is complete. The config can be a symlink, say
@@ -126,9 +128,9 @@ Programs that change the file at the same moment, say several extensions' `init`
 script, take turns: each holds a lock on `.config.yaml.lock`, beside the config, from reading the
 file until it has replaced it. The lock is the operating system's (`flock`, or `LockFileEx` on
 Windows), so a crashed program never leaves it held; a change that waits over 10 seconds for one
-gives up with an error. The lock file stays in `.brain`. When `brainctl init` makes `.brain`, it
-also writes `.brain/.gitignore` listing `.config.yaml.lock` and `.config.yaml.*.tmp`, so committing
-`.brain` leaves them out; if `.brain` was already there, add them to your `.gitignore` yourself.
+gives up with an error. The lock file stays in `.brain`, so `brainctl init` writes
+`.brain/.gitignore` listing `.config.yaml.lock` and `.config.yaml.*.tmp`, if there is no
+`.brain/.gitignore` yet, so committing `.brain` leaves them out. It never changes one you have.
 
 `workctl` is an extension of `brainctl` and shares its config file. `workctl init` adds its
 settings under `extensions`, keyed by its ID `app.cerebrai.workctl`. Run `brainctl init` first:
@@ -272,6 +274,9 @@ owner: me
 - YAML anchors you write by hand keep working: `set` keeps an anchor (`a: &x old`) on the value it
   replaces, so keys that refer to it (`b: *x`) follow the new value, and `unset` won't remove an
   anchor, or anything holding one, since what refers to it would then refer to nothing.
+- Merge keys (`<<: *defaults`) are read as YAML reads them: `get` finds inherited keys. But `set`
+  and `unset` won't change a mapping that has a merge key, since a new key there could hide what
+  it inherits: edit such a mapping by hand.
 - `workctl config` checks its settings first, as `init` does, and fails with "run workctl init
   first" if there are none yet. A failed `set` or `unset` changes nothing. Comments are kept,
   including one on a value replaced; a removed key's own comments go with it.

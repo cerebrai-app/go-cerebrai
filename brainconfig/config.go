@@ -314,21 +314,22 @@ func Path(dir string) string {
 //
 // The file and its directory are made readable by their owner only (0600 and
 // 0700), since extensions may keep secrets in their settings; loosen them by
-// hand to share the file. Later edits keep the file's permissions. When Init
-// makes the directory, it also writes a .gitignore there for the lock file
-// and temporary files, so committing the directory with the brain's data
-// leaves them out.
+// hand to share the file. Later edits keep the file's permissions. (On
+// Windows, these only set the read-only flag: the folder's inherited access
+// rules decide who can read the file.) Init also writes a .gitignore in the
+// directory, if there is none, for the lock file and temporary files, so
+// committing the directory with the brain's data leaves them out.
 func Init(path string) (created bool, err error) {
 	dir := filepath.Dir(path)
-	_, statErr := os.Stat(dir)
 	if err := os.MkdirAll(dir, 0o700); err != nil {
 		return false, err
 	}
-	if errors.Is(statErr, fs.ErrNotExist) {
-		if err := writeGitignore(dir, filepath.Base(path)); err != nil {
-			return false, err
+	// Once the file is there and good, so a failed Init leaves nothing new.
+	defer func() {
+		if err == nil {
+			err = writeGitignore(dir, filepath.Base(path))
 		}
-	}
+	}()
 	unlock, err := lockConfig(path)
 	if err != nil {
 		return false, err
@@ -367,8 +368,8 @@ func Init(path string) (created bool, err error) {
 	return false, err
 }
 
-// writeGitignore writes a .gitignore in dir, the config directory Init has
-// just made, for the lock file and any temporary file a crash leaves beside
+// writeGitignore writes a .gitignore in dir, the config directory, for the
+// lock file and any temporary file a crash leaves beside
 // the config file called name: the directory is meant to be committed with
 // the brain's data, and they are not. An existing .gitignore is kept.
 func writeGitignore(dir, name string) error {

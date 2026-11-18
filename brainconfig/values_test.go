@@ -465,3 +465,60 @@ func TestUnsetRefusesAnchors(t *testing.T) {
 		t.Errorf("the file no longer reads: %v", err)
 	}
 }
+
+// Merge keys (<<: *base): get reads what YAML reads, inherited keys included;
+// set and unset refuse to change a mapping that has one, since that could
+// hide what it inherits or change the mapping it comes from.
+func TestMergeKeys(t *testing.T) {
+	const body = "    defaults: &d\n      env: {region: eu, tier: free}\n      color: blue\n" +
+		"    profile:\n      <<: *d\n      color: red\n" +
+		"    multi:\n      <<: [*d, {extra: x}]\n"
+	path := writeConfig(t, withSettings(body))
+	cfg, err := Load(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	scope := ExtensionSettings(workctlID, 1)
+	for keyPath, want := range map[string]string{
+		"profile/color":      "red",  // its own key wins
+		"profile/env/region": "eu",   // inherited
+		"multi/env/tier":     "free", // from the first of a list
+		"multi/extra":        "x",    // from a later one
+	} {
+		if got, err := cfg.Get(scope, keyPath); err != nil || got != want {
+			t.Errorf("get %s = %q, %v; want %q", keyPath, got, err, want)
+		}
+	}
+	if _, err := cfg.Get(scope, "profile/missing"); !errors.Is(err, ErrNotSet) {
+		t.Errorf("get profile/missing: %v", err)
+	}
+
+	for _, tt := range []struct {
+		keyPath string
+		value   *string
+	}{
+		{"profile/env/region", ptr("us")}, // would add an env hiding the inherited one
+		{"profile/new", ptr("v")},
+		{"profile/color", ptr("green")},
+		{"profile/color", nil},
+		{"profile/env/region", nil},
+		{"multi/extra", nil},
+	} {
+		var changed bool
+		if tt.value != nil {
+			changed, err = Set(path, scope, tt.keyPath, *tt.value)
+		} else {
+			changed, err = Unset(path, scope, tt.keyPath)
+		}
+		if err == nil || changed || !strings.Contains(err.Error(), "uses a YAML merge key (<<)") {
+			t.Errorf("%s: %v, %v", tt.keyPath, changed, err)
+		}
+	}
+	if got, want := readFile(t, path), withSettings(body); got != want {
+		t.Errorf("file changed to %q", got)
+	}
+	// Mappings without a merge key change as usual.
+	if _, err := Set(path, scope, "defaults/color", "green"); err != nil {
+		t.Errorf("set defaults/color: %v", err)
+	}
+}

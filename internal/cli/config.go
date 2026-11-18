@@ -22,7 +22,8 @@ commands:
   set     set the value at <key path>, as a string, creating the mappings
           on the way that are missing; a value of - is read from standard
           input, without echo at a terminal, so a secret stays out of the
-          shell history and process list
+          shell history and process list (to store a literal -, pipe it in:
+          printf - | %[1]s config set <key path> -)
   unset   remove the key at <key path>, with its value; nothing to do if
           it is not set
 

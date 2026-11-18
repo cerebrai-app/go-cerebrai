@@ -58,11 +58,54 @@ func lookup(m *yaml.Node, keys []string) (*yaml.Node, error) {
 		if n.Kind != yaml.MappingNode {
 			return nil, fmt.Errorf("%s is not a mapping, so it has no %s", strings.Join(keys[:i], "/"), key)
 		}
-		if n = mappingValue(n, key); n == nil {
+		if n = mergedValue(n, key); n == nil {
 			return nil, nil
 		}
 	}
 	return n, nil
+}
+
+// mergedValue is the value of key in the mapping m as YAML reads it: m's own
+// key, or else one m takes from the mappings its merge key (<<: *base, or
+// <<: [*a, *b]) refers to, in order. nil if there is none.
+func mergedValue(m *yaml.Node, key string) *yaml.Node {
+	if v := mappingValue(m, key); v != nil {
+		return v
+	}
+	merge := mappingValue(m, "<<")
+	if merge == nil {
+		return nil
+	}
+	sources := []*yaml.Node{merge}
+	if merge.Kind == yaml.SequenceNode {
+		sources = merge.Content
+	}
+	for _, src := range sources {
+		if src.Kind == yaml.AliasNode {
+			src = src.Alias
+		}
+		if src != nil && src.Kind == yaml.MappingNode {
+			if v := mergedValue(src, key); v != nil {
+				return v
+			}
+		}
+	}
+	return nil
+}
+
+// checkNoMerge returns an error if the mapping m, at the key path keys (for
+// messages), has a merge key (<<: *base): adding or removing a key there
+// could hide what it takes from the mapping it merges, or change that
+// mapping for everything else that merges it.
+func checkNoMerge(m *yaml.Node, keys []string) error {
+	if m.Kind != yaml.MappingNode || mappingValue(m, "<<") == nil {
+		return nil
+	}
+	where := strings.Join(keys, "/")
+	if where == "" {
+		where = "the top of its scope"
+	}
+	return fmt.Errorf("%s uses a YAML merge key (<<), so changing it here could hide what it inherits: edit the file by hand", where)
 }
 
 // Scope is where in the file a key path starts: TopLevel, or the settings
@@ -293,6 +336,9 @@ func changeValue(path string, s Scope, keyPath string, value *string) (changed b
 func setIn(m *yaml.Node, keys []string, value string) (changed bool, err error) {
 	last := len(keys) - 1
 	for i, key := range keys[:last] {
+		if err := checkNoMerge(m, keys[:i]); err != nil {
+			return false, err
+		}
 		next := mappingValue(m, key)
 		switch {
 		case next == nil:
@@ -305,6 +351,9 @@ func setIn(m *yaml.Node, keys []string, value string) (changed bool, err error) 
 			return false, fmt.Errorf("%s is not a mapping, so it has no %s", strings.Join(keys[:i+1], "/"), keys[i+1])
 		}
 		m = next
+	}
+	if err := checkNoMerge(m, keys[:last]); err != nil {
+		return false, err
 	}
 	v := mappingValue(m, keys[last])
 	switch {
@@ -329,12 +378,22 @@ func setIn(m *yaml.Node, keys []string, value string) (changed bool, err error) 
 // changed is false if it is not there.
 func unsetIn(m *yaml.Node, keys []string) (changed bool, err error) {
 	last := len(keys) - 1
-	parent, err := lookup(m, keys[:last])
-	if err != nil || parent == nil || isNull(parent) {
-		return false, err
+	// Through the mappings' own keys only, not ones taken through a merge
+	// key: removing one of those would change the mapping it came from.
+	parent := m
+	for i, key := range keys[:last] {
+		if err := checkNoMerge(parent, keys[:i]); err != nil {
+			return false, err
+		}
+		if parent = mappingValue(parent, key); parent == nil || isNull(parent) {
+			return false, nil
+		}
+		if parent.Kind != yaml.MappingNode {
+			return false, fmt.Errorf("%s is not a mapping, so it has no %s", strings.Join(keys[:i+1], "/"), keys[i+1])
+		}
 	}
-	if parent.Kind != yaml.MappingNode {
-		return false, fmt.Errorf("%s is not a mapping, so it has no %s", strings.Join(keys[:last], "/"), keys[last])
+	if err := checkNoMerge(parent, keys[:last]); err != nil {
+		return false, err
 	}
 	for i := 0; i+1 < len(parent.Content); i += 2 {
 		if parent.Content[i].Value == keys[last] {
