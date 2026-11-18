@@ -313,11 +313,11 @@ func Path(dir string) string {
 // changed, except that a zero-byte one is filled in (see below).
 //
 // The file and its directory are made readable by their owner only (0600 and
-// 0700); loosen them by hand to share the file. That is no reason to keep
-// secrets in it, though: the file is meant to be committed or backed up with
-// the brain's data, so extensions read secrets from elsewhere. Later edits keep the file's permissions. (On
-// Windows, these only set the read-only flag: the folder's inherited access
-// rules decide who can read the file.) Init also writes a .gitignore in the
+// 0700); loosen them by hand to share the file. Later edits keep the file's
+// permissions. (On Windows, these only set the read-only flag: the folder's
+// inherited access rules decide who can read the file.) That is no reason to
+// keep secrets in it, though: the file is meant to be committed or backed up
+// with the brain's data, so extensions read secrets from elsewhere. Init also writes a .gitignore in the
 // directory, if there is none, for the lock file and temporary files, so
 // committing the directory with the brain's data leaves them out.
 func Init(path string) (created bool, err error) {
