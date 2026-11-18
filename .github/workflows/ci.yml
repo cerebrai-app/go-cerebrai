@@ -19,4 +19,6 @@ jobs:
     uses: cerebrai-app/actions/.github/workflows/go-ci.yml@da96b5c774508e239ab5f47a44af71a77381484c # v3.3.1
     with:
       main-packages: ./cmd/brainctl ./cmd/workctl
+      # Until the pinned go-ci.yml includes windows/arm64 by default.
+      targets: linux/amd64 linux/arm64 darwin/amd64 darwin/arm64 windows/amd64 windows/arm64
       smoke-test-args: version
