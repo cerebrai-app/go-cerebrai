@@ -16,9 +16,7 @@ concurrency:
 
 jobs:
   ci:
-    uses: cerebrai-app/actions/.github/workflows/go-ci.yml@da96b5c774508e239ab5f47a44af71a77381484c # v3.3.1
+    uses: cerebrai-app/actions/.github/workflows/go-ci.yml@1719847bdd974c534871de3d9cb4ba4c427226f9 # v3.4.0
     with:
       main-packages: ./cmd/brainctl ./cmd/workctl
-      # Until the pinned go-ci.yml includes windows/arm64 by default.
-      targets: linux/amd64 linux/arm64 darwin/amd64 darwin/arm64 windows/amd64 windows/arm64
       smoke-test-args: version
