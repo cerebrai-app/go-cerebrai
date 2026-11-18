@@ -238,12 +238,12 @@ func extensionBase(id string, node *yaml.Node) (ExtensionBase, error) {
 	if err := node.Decode(&base); err != nil {
 		return ExtensionBase{}, fmt.Errorf("invalid settings for extension %s: %w", id, err)
 	}
-	if mappingValue(node, "name") != nil {
+	if mergedValue(node, "name") != nil {
 		if err := CheckName(base.Name); err != nil {
 			return ExtensionBase{}, fmt.Errorf("invalid settings for extension %s: %w", id, err)
 		}
 	}
-	if mappingValue(node, "bin") != nil {
+	if mergedValue(node, "bin") != nil {
 		if err := CheckBin(base.Bin); err != nil {
 			return ExtensionBase{}, fmt.Errorf("invalid settings for extension %s: %w", id, err)
 		}
@@ -491,10 +491,10 @@ func AddExtension(path, id string, want ExtensionBase) (added []string, err erro
 	} else {
 		keys = append(keys, "schema_version")
 	}
-	if want.Name != "" && (!exists || mappingValue(&node, "name") == nil) {
+	if want.Name != "" && (!exists || mergedValue(&node, "name") == nil) {
 		keys = append(keys, "name")
 	}
-	if want.Bin != "" && (!exists || mappingValue(&node, "bin") == nil) {
+	if want.Bin != "" && (!exists || mergedValue(&node, "bin") == nil) {
 		keys = append(keys, "bin")
 	}
 	if len(keys) == 0 {

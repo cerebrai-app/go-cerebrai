@@ -342,3 +342,33 @@ func TestCheckControlCharacters(t *testing.T) {
 		t.Errorf("Extension with an escape code in name: %v", err)
 	}
 }
+
+// name and bin taken through a merge key count as set: AddExtension keeps
+// them rather than add its own over them, and they are checked like others.
+func TestStandardKeysThroughMergeKeys(t *testing.T) {
+	const content = "schema_version: 1\nbase: &b {name: Shared, bin: /opt/x/workctl}\n" +
+		"extensions:\n  app.cerebrai.workctl:\n    <<: *b\n    schema_version: 1\n"
+	path := writeConfig(t, content)
+	if added, err := AddExtension(path, "app.cerebrai.workctl", workctlBase); err != nil || len(added) != 0 {
+		t.Errorf("AddExtension: %q, %v", added, err)
+	}
+	if got := readFile(t, path); got != content {
+		t.Errorf("file changed to %q", got)
+	}
+	cfg, err := Load(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if ext, _, err := cfg.Extension("app.cerebrai.workctl"); err != nil || ext.Name != "Shared" || ext.Bin != "/opt/x/workctl" {
+		t.Errorf("Extension: %+v, %v", ext, err)
+	}
+
+	bad, err := Unmarshal([]byte("schema_version: 1\nbase: &b {bin: bin/x}\n" +
+		"extensions:\n  app.cerebrai.workctl:\n    <<: *b\n    schema_version: 1\n"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, _, err := bad.Extension("app.cerebrai.workctl"); err == nil || !strings.Contains(err.Error(), "invalid bin") {
+		t.Errorf("an inherited bad bin: %v", err)
+	}
+}

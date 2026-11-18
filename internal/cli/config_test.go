@@ -2,6 +2,7 @@ package cli
 
 import (
 	"errors"
+	"io"
 	"os"
 	"path/filepath"
 	"strings"
@@ -411,3 +412,25 @@ func TestConfigSetFromStdinErrors(t *testing.T) {
 type errReader struct{}
 
 func (errReader) Read([]byte) (int, error) { return 0, errors.New("read failed") }
+
+// At a terminal, config get shows control characters as escapes, as
+// extensions ls does; piped output is the exact value.
+func TestConfigGetEscapesAtTerminal(t *testing.T) {
+	project(t)
+	writeBrainConfig(t, withWorkctl+"    title: \"a\\e[2Jb\"\n    block: {x: \"1\\e[31m\", y: \"2\"}\n")
+	old := isTerminal
+	t.Cleanup(func() { isTerminal = old })
+
+	isTerminal = func(io.Writer) bool { return false }
+	if _, stdout, _ := runWorkctl("config", "get", "title"); stdout != "a\x1b[2Jb\n" {
+		t.Errorf("piped: %q", stdout)
+	}
+	isTerminal = func(io.Writer) bool { return true }
+	if _, stdout, _ := runWorkctl("config", "get", "title"); stdout != `a\x1b[2Jb`+"\n" {
+		t.Errorf("terminal: %q", stdout)
+	}
+	// A mapping keeps its line breaks; only what is in its lines is escaped.
+	if _, stdout, _ := runWorkctl("config", "get", "block"); stdout != "x: \"1\\e[31m\"\ny: \"2\"\n" {
+		t.Errorf("terminal, mapping: %q", stdout)
+	}
+}

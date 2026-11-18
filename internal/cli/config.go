@@ -22,8 +22,9 @@ commands:
   set     set the value at <key path>, as a string, creating the mappings
           on the way that are missing; a value of - is read from standard
           input, without echo at a terminal, for a long value or one to
-          keep out of the shell history (to store a literal -, pipe it in:
-          printf - | %[1]s config set <key path> -)
+          keep out of the shell history; not for secrets, as the file is
+          committed or backed up with the brain (to store a literal -,
+          pipe it in: printf - | %[1]s config set <key path> -)
   unset   remove the key at <key path>, with its value; nothing to do if
           it is not set
 
@@ -97,10 +98,18 @@ func config(prog Program, args []string, stdout, stderr io.Writer) error {
 			return fmt.Errorf("%s: %w", path, err)
 		}
 		// A mapping or list is YAML that already ends in a newline.
-		if !strings.HasSuffix(value, "\n") {
-			value += "\n"
+		value = strings.TrimSuffix(value, "\n")
+		if isTerminal(stdout) {
+			// As in extensions ls: the config can come from a cloned
+			// repository, so its text must not reach a terminal as escape
+			// codes. Piped output stays exact. Line breaks are kept.
+			lines := strings.Split(value, "\n")
+			for i, line := range lines {
+				lines[i] = cell(line)
+			}
+			value = strings.Join(lines, "\n")
 		}
-		_, err = io.WriteString(stdout, value)
+		_, err = io.WriteString(stdout, value+"\n")
 		return err
 	}
 
@@ -123,6 +132,12 @@ func config(prog Program, args []string, stdout, stderr io.Writer) error {
 		_, err = brainconfig.Unset(path, scope, args[1])
 	}
 	return err
+}
+
+// isTerminal reports whether w is a terminal; tests replace it.
+var isTerminal = func(w io.Writer) bool {
+	f, ok := w.(*os.File)
+	return ok && term.IsTerminal(int(f.Fd()))
 }
 
 // Where config set - reads its value; tests replace them.
