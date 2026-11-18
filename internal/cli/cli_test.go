@@ -6,13 +6,19 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/cerebrai-app/go-cerebrai/brainconfig"
 	"github.com/cerebrai-app/go-cerebrai/internal/buildinfo"
 	"github.com/cerebrai-app/go-cerebrai/internal/python"
 )
 
+var (
+	brainctl = Program{Name: "brainctl"}
+	workctl  = Program{Name: "workctl", ExtensionID: "app.cerebrai.workctl", ExtensionSchemaVersion: 1}
+)
+
 func run(args ...string) (code int, stdout, stderr string) {
 	var out, errOut strings.Builder
-	code = Main("brainctl", args, &out, &errOut)
+	code = Main(brainctl, args, &out, &errOut)
 	return code, out.String(), errOut.String()
 }
 
@@ -39,8 +45,13 @@ func TestUsageErrors(t *testing.T) {
 	}
 }
 
+// stubInstall replaces install and runs the test in an empty current
+// directory, so init's config file goes there.
 func stubInstall(t *testing.T, err error) *python.Options {
 	t.Helper()
+	t.Chdir(t.TempDir())
+	// The brain home is the current directory unless a test sets this.
+	t.Setenv(brainconfig.EnvVar, "")
 	var got python.Options
 	old := install
 	t.Cleanup(func() { install = old })
@@ -75,14 +86,14 @@ func TestInitPassesOptions(t *testing.T) {
 func TestInitReportsInstallErrors(t *testing.T) {
 	stubInstall(t, errors.New("no network"))
 	code, stdout, stderr := run("init")
-	if code != 1 || stdout != "" || stderr != "error: no network\n" {
+	if code != 1 || stdout != "" || !strings.HasSuffix(stderr, "\nerror: no network\n") {
 		t.Errorf("got %d, %q, %q", code, stdout, stderr)
 	}
 }
 
 func TestVersionWriteError(t *testing.T) {
 	var errOut strings.Builder
-	if code := Main("brainctl", []string{"version"}, failingWriter{}, &errOut); code != 1 {
+	if code := Main(brainctl, []string{"version"}, failingWriter{}, &errOut); code != 1 {
 		t.Errorf("got %d, stderr %q", code, errOut.String())
 	}
 }
