@@ -3,6 +3,9 @@ name: Claude Code Review
 on:
   pull_request:
     types: [opened, synchronize, ready_for_review, reopened]
+    # Skip PRs that only touch CI config, such as Renovate's action pin bumps.
+    # A PR that also changes anything outside .github/ is still reviewed.
+    paths-ignore: [".github/**"]
 
 # The two reviews are separate jobs so they run in parallel and one failing
 # doesn't stop the other.
