@@ -11,7 +11,7 @@ done.
 |------|-------|----------|--------|------------|--------|
 | [001](001-quoted-merge-key-is-a-plain-key.md) | A quoted `"<<"` key no longer blocks config edits | P2 | S | — | DONE: reviewed and approved 2026-11-18; commit `ddc2379`, merged into `claude/hopeful-mayer-fkpar0` |
 | [002](002-align-install-docs-with-tap-and-bucket.md) | The README's Homebrew and Scoop instructions match the tap and bucket repositories | P3 | S | — | DONE: reviewed and approved 2026-11-18; commit `149a89d`, merged into `claude/hopeful-mayer-fkpar0` |
-| [003](003-add-claude-md.md) | A `CLAUDE.md` records the commands and the contracts other repositories depend on | P3 | S | — | TODO |
+| [003](003-add-claude-md.md) | A `CLAUDE.md` records the commands and the contracts other repositories depend on | P3 | S | — | DONE: reviewed and approved 2026-11-18; commit `d9a33ce`, fast-forwarded into `claude/hopeful-mayer-fkpar0`. Step 1's `grep 'contract'` expectation was wrong (the phrase wraps across lines); the facts held |
 
 Status values: TODO | IN PROGRESS | DONE | BLOCKED (with one-line reason) | REJECTED (with one-line rationale — finding fixed independently or approach abandoned)
 
