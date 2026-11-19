@@ -6,9 +6,10 @@
 // Layout: <data dir>/python-build-standalone/<version>+<build options>/ (e.g.
 // 3.14.10+freethreaded+pgo+lto), holding the archive's own python/ tree. If
 // that directory already exists nothing is downloaded. A sibling symlink
-// named <major.minor> (e.g. 3.14) points at the install of the last run,
-// whichever patch version and build options it has, so its path survives
-// patch upgrades. The data dir is $XDG_DATA_HOME if set to an absolute path,
+// named <major.minor> (e.g. 3.14) points at the highest installed patch
+// version, so its path survives patch upgrades; an older patch version gets a
+// <major.minor.patch> link instead. Between builds of the same version, the
+// last run wins. The data dir is $XDG_DATA_HOME if set to an absolute path,
 // otherwise %LOCALAPPDATA% on Windows and ~/.local/share elsewhere.
 //
 // Each archive is checked against the release's SHA256SUMS. That catches
@@ -141,7 +142,13 @@ func install(opts Options, root, triple string, src source) (string, error) {
 	} else if err := installAsset(opts, log, src, tag, a, root, dest); err != nil {
 		return "", err
 	}
-	stable := filepath.Join(root, a.stableName())
+	var installed []string
+	if entries, err := os.ReadDir(root); err == nil {
+		for _, e := range entries {
+			installed = append(installed, e.Name())
+		}
+	}
+	stable := filepath.Join(root, a.linkName(installed))
 	if err := linkStable(dest, stable); err != nil {
 		// The install itself worked; e.g. Windows refuses symlinks without Developer Mode.
 		say("note: could not link %s: %v", stable, err)

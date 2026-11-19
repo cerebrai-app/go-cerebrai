@@ -157,6 +157,25 @@ func TestInstallRepointsTheStableLink(t *testing.T) {
 	}
 }
 
+func TestInstallLinksAnOlderPatchByItsFullVersion(t *testing.T) {
+	s, _ := release(t, "")
+	root := filepath.Join(t.TempDir(), "python-build-standalone")
+	if err := os.MkdirAll(filepath.Join(root, "3.14.9+pgo+lto"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Symlink("3.14.9+pgo+lto", filepath.Join(root, "3.14")); err != nil {
+		t.Skipf("no symlinks here: %v", err)
+	}
+	if _, err := install(Options{PythonVersion: "3.14", Quiet: true}, root, testTriple, s.source()); err != nil {
+		t.Fatal(err)
+	}
+	for link, want := range map[string]string{"3.14": "3.14.9+pgo+lto", "3.14.1": "3.14.1+freethreaded+pgo+lto"} {
+		if got, err := os.Readlink(filepath.Join(root, link)); err != nil || got != want {
+			t.Errorf("%s -> %q, %v; want %q", link, got, err, want)
+		}
+	}
+}
+
 func TestInstallKeepsADirectoryNamedLikeTheLink(t *testing.T) {
 	s, _ := release(t, "")
 	root := filepath.Join(t.TempDir(), "python-build-standalone")
