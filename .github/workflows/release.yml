@@ -31,14 +31,14 @@ jobs:
           fetch-depth: 0 # GoReleaser and the default-branch check need the history and tags
           persist-credentials: false
       - id: build
-        uses: cerebrai-app/actions/go-release-build@91f86f0569c8da94a882dd5b3fc57f1dae2ced4c # v4.0.0
+        uses: cerebrai-app/actions/go-release-build@3237aca92e00a561e1e5acab0fb34fbf6cace984 # v4.1.0
 
   tap-app:
     name: Check tap app
     runs-on: ubuntu-latest
     permissions: {}
     steps:
-      - uses: cerebrai-app/actions/go-release-check-tap-app@91f86f0569c8da94a882dd5b3fc57f1dae2ced4c # v4.0.0
+      - uses: cerebrai-app/actions/go-release-check-tap-app@3237aca92e00a561e1e5acab0fb34fbf6cace984 # v4.1.0
         with:
           tap-repositories: homebrew-tap,scoop-bucket
           app-client-id: ${{ secrets.RELEASE_APP_CLIENT_ID }}
@@ -58,7 +58,7 @@ jobs:
         with:
           fetch-depth: 0
           persist-credentials: false
-      - uses: cerebrai-app/actions/go-release-publish@91f86f0569c8da94a882dd5b3fc57f1dae2ced4c # v4.0.0
+      - uses: cerebrai-app/actions/go-release-publish@3237aca92e00a561e1e5acab0fb34fbf6cace984 # v4.1.0
         with:
           go-version: ${{ needs.build.outputs.go-version }}
           tap-repositories: homebrew-tap,scoop-bucket
