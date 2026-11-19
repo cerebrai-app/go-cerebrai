@@ -201,3 +201,34 @@ func TestOptionsDefaults(t *testing.T) {
 		t.Error("Quiet ignored")
 	}
 }
+
+func TestInstalledListsInstallDirsByVersion(t *testing.T) {
+	root := t.TempDir()
+	for _, d := range []string{"3.14.10+pgo+lto", "3.9.1+pgo+lto", "3.14.10+freethreaded+pgo+lto",
+		"3.14.2+pgo+lto.123-456-1.partial", "notes"} {
+		if err := os.Mkdir(filepath.Join(root, d), 0o755); err != nil {
+			t.Fatal(err)
+		}
+	}
+	if err := os.WriteFile(filepath.Join(root, "3.14.9+lto.1-2-3.download"), nil, 0o644); err != nil {
+		t.Fatal(err)
+	}
+	// A link (the stable <major.minor> name) is not an install of its own.
+	if err := os.Symlink("3.14.10+pgo+lto", filepath.Join(root, "3.14+pgo")); err != nil {
+		t.Log("no symlink:", err)
+	}
+	got, err := installed(root)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var want []string
+	for _, d := range []string{"3.9.1+pgo+lto", "3.14.10+freethreaded+pgo+lto", "3.14.10+pgo+lto"} {
+		want = append(want, filepath.Join(root, d))
+	}
+	if !slices.Equal(got, want) {
+		t.Errorf("got %q, want %q", got, want)
+	}
+	if got, err := installed(filepath.Join(root, "missing")); got != nil || err != nil {
+		t.Errorf("missing root: %q, %v", got, err)
+	}
+}

@@ -15,12 +15,16 @@
 package python
 
 import (
+	"cmp"
+	"errors"
 	"fmt"
 	"io"
+	"io/fs"
 	"net/http"
 	"os"
 	"path/filepath"
 	"runtime"
+	"slices"
 	"strings"
 )
 
@@ -83,8 +87,7 @@ type source struct {
 // invalid Options.PythonVersion is rejected before anything touches the
 // network or the file system.
 func Install(opts Options) (string, error) {
-	home, err := dataHome(os.Getenv("XDG_DATA_HOME"), os.Getenv("HOME"),
-		os.Getenv("LOCALAPPDATA"), os.Getenv("USERPROFILE"), runtime.GOOS == "windows")
+	root, err := installRoot()
 	if err != nil {
 		return "", err
 	}
@@ -93,7 +96,63 @@ func Install(opts Options) (string, error) {
 		return "", err
 	}
 	src := source{client: newClient(), latestReleaseURL: latestReleaseURL, downloadURL: releaseDownloadURL}
-	return install(opts, filepath.Join(home, "python-build-standalone"), triple, src)
+	return install(opts, root, triple, src)
+}
+
+// installRoot is <data dir>/python-build-standalone.
+func installRoot() (string, error) {
+	home, err := dataHome(os.Getenv("XDG_DATA_HOME"), os.Getenv("HOME"),
+		os.Getenv("LOCALAPPDATA"), os.Getenv("USERPROFILE"), runtime.GOOS == "windows")
+	if err != nil {
+		return "", err
+	}
+	return filepath.Join(home, "python-build-standalone"), nil
+}
+
+// Installed returns the directories of the installed distributions, oldest
+// Python version first, and the directory they are in. Nothing installed,
+// including a missing directory, is not an error.
+func Installed() (dirs []string, root string, err error) {
+	root, err = installRoot()
+	if err != nil {
+		return nil, "", err
+	}
+	dirs, err = installed(root)
+	return dirs, root, err
+}
+
+// installed lists the install directories in root: directories named
+// <version>+<build options>, skipping symlinks and leftover temporaries.
+func installed(root string) ([]string, error) {
+	entries, err := os.ReadDir(root)
+	if errors.Is(err, fs.ErrNotExist) {
+		return nil, nil
+	}
+	if err != nil {
+		return nil, err
+	}
+	type install struct {
+		name    string
+		version []int
+	}
+	var found []install
+	for _, e := range entries {
+		version, opts, ok := strings.Cut(e.Name(), "+")
+		v, valid := parseVersion(version)
+		// A temporary's name has a "." after the build options; real ones don't.
+		if !e.IsDir() || !ok || !valid || strings.Contains(opts, ".") {
+			continue
+		}
+		found = append(found, install{e.Name(), v})
+	}
+	slices.SortFunc(found, func(a, b install) int {
+		return cmp.Or(slices.Compare(a.version, b.version), strings.Compare(a.name, b.name))
+	})
+	dirs := make([]string, len(found))
+	for i, f := range found {
+		dirs[i] = filepath.Join(root, f.name)
+	}
+	return dirs, nil
 }
 
 // install is Install with the install root, platform and release source given.

@@ -141,3 +141,32 @@ func TestShellHint(t *testing.T) {
 		}
 	}
 }
+
+func TestPythonList(t *testing.T) {
+	old := installed
+	t.Cleanup(func() { installed = old })
+	var dirs []string
+	installed = func() ([]string, string, error) { return dirs, "/data/pbs", nil }
+
+	for _, cmd := range []string{"l", "ls", "list"} {
+		code, stdout, stderr := run("python", cmd)
+		if code != 0 || stdout != "" || !strings.Contains(stderr, "No Python is installed in /data/pbs; run brainctl init") {
+			t.Errorf("%s, none installed: got %d, %q, %q", cmd, code, stdout, stderr)
+		}
+	}
+	dirs = []string{"/data/pbs/3.13.9+pgo+lto", "/data/pbs/3.14.10+pgo+lto"}
+	var out, errOut strings.Builder
+	if code := Main(workctl, []string{"python", "ls"}, &out, &errOut); code != 0 ||
+		out.String() != "/data/pbs/3.13.9+pgo+lto\n/data/pbs/3.14.10+pgo+lto\n" || errOut.String() != "" {
+		t.Errorf("workctl: got %d, %q, %q", code, out.String(), errOut.String())
+	}
+	for _, args := range [][]string{{"python"}, {"python", "nope"}, {"python", "ls", "extra"}} {
+		if code, _, stderr := run(args...); code != 2 || !strings.Contains(stderr, "usage: brainctl python") {
+			t.Errorf("%q: got %d, %q", args, code, stderr)
+		}
+	}
+	installed = func() ([]string, string, error) { return nil, "", errors.New("boom") }
+	if code, _, stderr := run("python", "ls"); code != 1 || stderr != "error: boom\n" {
+		t.Errorf("error: got %d, %q", code, stderr)
+	}
+}
