@@ -46,8 +46,9 @@ func TestUsageErrors(t *testing.T) {
 	}
 }
 
-// stubInstall replaces install and runs the test in an empty current
-// directory, so init's config file goes there.
+// stubInstall replaces install, and installPipx with a stub that succeeds,
+// and runs the test in an empty current directory, so init's config file goes
+// there.
 func stubInstall(t *testing.T, err error) *python.Options {
 	t.Helper()
 	t.Chdir(t.TempDir())
@@ -60,7 +61,31 @@ func stubInstall(t *testing.T, err error) *python.Options {
 		got = opts
 		return "/data/python-build-standalone/x", err
 	}
+	oldPipx := installPipx
+	t.Cleanup(func() { installPipx = oldPipx })
+	installPipx = func(string, python.Options) (string, error) { return "/data/pipx", nil }
 	return &got
+}
+
+func TestInitInstallsPipxIntoTheDistribution(t *testing.T) {
+	stubInstall(t, nil)
+	var dist string
+	installPipx = func(d string, _ python.Options) (string, error) {
+		dist = d
+		return "", nil
+	}
+	if code, _, stderr := run("init"); code != 0 {
+		t.Fatalf("got %d, %q", code, stderr)
+	}
+	if dist != "/data/python-build-standalone/x" {
+		t.Errorf("pipx installed into %q", dist)
+	}
+
+	installPipx = func(string, python.Options) (string, error) { return "", errors.New("pip failed") }
+	code, stdout, stderr := run("init")
+	if code != 1 || stdout != "" || !strings.HasSuffix(stderr, "\nerror: pip failed\n") {
+		t.Errorf("got %d, %q, %q", code, stdout, stderr)
+	}
 }
 
 func TestInitPassesOptions(t *testing.T) {

@@ -1,6 +1,6 @@
 // Package python downloads a python-build-standalone distribution
 // (https://github.com/astral-sh/python-build-standalone) into the user's data
-// directory. It is the Go port of the cerebrai-python crate in
+// directory, and InstallPipx installs pipx into one. It is the Go port of the cerebrai-python crate in
 // cerebrai-app/cerebrai-crates, shared by brainctl and workctl.
 //
 // Layout: <data dir>/python-build-standalone/<version>+<build options>/ (e.g.

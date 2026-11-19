@@ -24,8 +24,12 @@ import (
 // brainconfigFile is the config file's path inside the brain home.
 var brainconfigFile = filepath.Join(brainconfig.DirName, brainconfig.FileName)
 
-// install is python.Install; tests replace it.
-var install = python.Install
+// install is python.Install and installPipx is python.InstallPipx; tests
+// replace them.
+var (
+	install     = python.Install
+	installPipx = python.InstallPipx
+)
 
 // Program describes the program Main runs.
 type Program struct {
@@ -56,8 +60,8 @@ func Main(prog Program, args []string, stdout, stderr io.Writer) int {
 
 commands:
   version     print the %[1]s version
-  init        set up %[2]s in the brain home and download a
-              python-build-standalone distribution
+  init        set up %[2]s in the brain home, download a
+              python-build-standalone distribution and install pipx into it
 %[4]s
 The brain home is $%[3]s if set, otherwise the current directory.
 Run "%[1]s <command> -h" for more about a command.
@@ -111,7 +115,8 @@ that has the preferred build; a note is printed if a newer one exists only as an
 	fs.Usage = func() {
 		_, _ = fmt.Fprintf(stderr, "usage: %s init [flags]\n\n"+
 			"%s, then downloads a python-build-standalone\n"+
-			"distribution into the data directory.\n\nflags:\n",
+			"distribution into the data directory and installs pipx into it, with its\n"+
+			"environments in the data directory's pipx directory.\n\nflags:\n",
 			name, initWrites(prog))
 		fs.PrintDefaults()
 	}
@@ -137,7 +142,12 @@ that has the preferred build; a note is printed if a newer one exists only as an
 		_, _ = fmt.Fprintf(stderr, "error: %v\n", err)
 		return 1
 	}
-	if _, err := install(opts); err != nil {
+	dist, err := install(opts)
+	if err != nil {
+		_, _ = fmt.Fprintf(stderr, "error: %v\n", err)
+		return 1
+	}
+	if _, err := installPipx(dist, opts); err != nil {
 		_, _ = fmt.Fprintf(stderr, "error: %v\n", err)
 		return 1
 	}

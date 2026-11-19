@@ -12,7 +12,7 @@ They replace the Rust [brainctl](https://github.com/cerebrai-app/brainctl) and
 | [`cmd/brainctl`](cmd/brainctl), [`cmd/workctl`](cmd/workctl) | the two programs; each only calls `cli.Main` with its name (and `workctl` with its extension ID and the schema version of its settings) |
 | [`internal/cli`](internal/cli) | the command line both programs share: `version`, `init` and `config`, and `brainctl`'s `extensions` |
 | [`brainconfig`](brainconfig) | reads and writes the brain config file, `.brain/config.yaml`, for `brainctl` and its extensions, including [third-party ones](#writing-an-extension) |
-| [`internal/python`](internal/python) | downloads, verifies and unpacks [python-build-standalone](https://github.com/astral-sh/python-build-standalone) distributions (the port of the `cerebrai-python` crate) |
+| [`internal/python`](internal/python) | downloads, verifies and unpacks [python-build-standalone](https://github.com/astral-sh/python-build-standalone) distributions (the port of the `cerebrai-python` crate) and installs pipx into them |
 | [`internal/buildinfo`](internal/buildinfo) | `buildinfo.Version()`: the version the release links in from the tag, else the module version from `go install`, else `dev` |
 
 Shared code lives under `internal/`, so only these programs can import it and it has no API of
@@ -211,6 +211,17 @@ whatever paths or links the archive holds.
 
 On Linux, `init` picks the glibc or musl build by checking which C library `/bin/sh` uses, since
 the binaries themselves are static.
+
+Last, `init` installs [pipx](https://pipx.pypa.io) into that distribution with its own `pip`
+(`python -m pip install pipx`). It skips `pip`, and so needs no download, if the distribution
+already has pipx; a new Python version gets its own pipx on the `init` that installs it. pipx
+keeps its environments in `<data dir>/pipx/` (for example `~/.local/share/pipx`), next to the
+Python distributions. pipx has no config file, only `$PIPX_HOME`, so `init` replaces the `pipx`
+command `pip` writes with a script that sets `PIPX_HOME` to that directory and runs pipx with the
+distribution's Python: `python/install/bin/pipx` on macOS and Linux, `python\install\Scripts\pipx.cmd`
+on Windows (where `init` also deletes `pip`'s `pipx.exe`, which would run first). A `$PIPX_HOME`
+you set yourself still wins. `init` rewrites the script on every run. pipx's other directories,
+such as `~/.local/bin` for the commands it installs, keep pipx's defaults.
 
 ### `extensions`
 
