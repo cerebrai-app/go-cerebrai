@@ -89,6 +89,8 @@ func TestInstallPipx(t *testing.T) {
 			}
 			for _, line := range []string{
 				`if not defined PIPX_HOME set "PIPX_HOME=` + strings.ReplaceAll(home, "%", "%%") + "\"\r\n",
+				`if not defined PIPX_BIN_DIR set "PIPX_BIN_DIR=` + strings.ReplaceAll(filepath.Join(home, "bin"), "%", "%%") + "\"\r\n",
+				`if not defined PIPX_MAN_DIR set "PIPX_MAN_DIR=` + strings.ReplaceAll(filepath.Join(home, "man"), "%", "%%") + "\"\r\n",
 				`"` + python + `" -I -m pipx %*` + "\r\n",
 			} {
 				if !strings.Contains(string(script), line) {
@@ -141,33 +143,37 @@ func TestInstallPipxErrors(t *testing.T) {
 }
 
 // TestPipxScriptRuns runs the POSIX command with a stand-in interpreter that
-// prints PIPX_HOME and its arguments.
+// prints PIPX_HOME, PIPX_BIN_DIR, PIPX_MAN_DIR and its arguments.
 func TestPipxScriptRuns(t *testing.T) {
 	if runtime.GOOS == "windows" {
 		t.Skip("POSIX shell script")
 	}
 	dir := t.TempDir()
 	python := filepath.Join(dir, "it's python")
-	if err := os.WriteFile(python, []byte("#!/bin/sh\necho \"$PIPX_HOME|$*\"\n"), 0o755); err != nil {
+	if err := os.WriteFile(python, []byte("#!/bin/sh\necho \"$PIPX_HOME|$PIPX_BIN_DIR|$PIPX_MAN_DIR|$*\"\n"), 0o755); err != nil {
 		t.Fatal(err)
 	}
 	home := filepath.Join(dir, "it's $HOME")
-	cmd, err := writePipxCommand(dir, python, home, false)
+	cmd, err := writePipxCommand(dir, python, newPipxEnv(home), false)
 	if err != nil {
 		t.Fatal(err)
 	}
-	for _, tc := range []struct{ env, want string }{
-		{"", home + "|-I -m pipx install some tool"},
-		{"/elsewhere", "/elsewhere|-I -m pipx install some tool"},
+	const args = "|-I -m pipx install some tool"
+	bin, man := filepath.Join(home, "bin"), filepath.Join(home, "man")
+	for _, tc := range []struct{ home, binDir, manDir, want string }{
+		{"", "", "", home + "|" + bin + "|" + man + args},
+		{"/elsewhere", "", "", "/elsewhere|" + bin + "|" + man + args},
+		{"", "/bin2", "", home + "|/bin2|" + man + args},
+		{"", "", "/man2", home + "|" + bin + "|/man2" + args},
 	} {
 		c := exec.Command(cmd, "install", "some tool")
-		c.Env = append(os.Environ(), "PIPX_HOME="+tc.env)
+		c.Env = append(os.Environ(), "PIPX_HOME="+tc.home, "PIPX_BIN_DIR="+tc.binDir, "PIPX_MAN_DIR="+tc.manDir)
 		out, err := c.Output()
 		if err != nil {
 			t.Fatal(err)
 		}
 		if got := strings.TrimSpace(string(out)); got != tc.want {
-			t.Errorf("PIPX_HOME=%q: got %q, want %q", tc.env, got, tc.want)
+			t.Errorf("%+v: got %q", tc, got)
 		}
 	}
 }

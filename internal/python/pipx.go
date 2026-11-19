@@ -28,7 +28,9 @@ var runPython = func(log io.Writer, python string, args ...string) error {
 // InstallPipx installs pipx into the distribution Install returned, dist, with
 // the distribution's own pip, and replaces the pipx command pip writes with one
 // that keeps pipx's environments in <data dir>/pipx (PIPX_HOME), next to the
-// Python distributions, unless $PIPX_HOME is set. It returns the command's path.
+// Python distributions, and the commands and manual pages it installs in
+// <data dir>/pipx/bin (PIPX_BIN_DIR) and <data dir>/pipx/man (PIPX_MAN_DIR),
+// unless those variables are set. It returns the command's path.
 //
 // pip only runs, and so only needs network access, if pipx is not installed in
 // dist yet. The command is rewritten every time.
@@ -39,6 +41,22 @@ func InstallPipx(dist string, opts Options) (string, error) {
 		return "", err
 	}
 	return installPipx(dist, filepath.Join(home, "pipx"), runtime.GOOS == "windows", opts)
+}
+
+// pipxEnv is the variables the pipx command sets when they are unset.
+type pipxEnv struct{ home, binDir, manDir string }
+
+func newPipxEnv(pipxHome string) pipxEnv {
+	return pipxEnv{
+		home:   pipxHome,
+		binDir: filepath.Join(pipxHome, "bin"),
+		manDir: filepath.Join(pipxHome, "man"),
+	}
+}
+
+// vars lists the variables in the order the command sets them.
+func (e pipxEnv) vars() [][2]string {
+	return [][2]string{{"PIPX_HOME", e.home}, {"PIPX_BIN_DIR", e.binDir}, {"PIPX_MAN_DIR", e.manDir}}
 }
 
 // installPipx is InstallPipx with PIPX_HOME and the platform given.
@@ -67,20 +85,24 @@ func installPipx(dist, pipxHome string, windows bool, opts Options) (string, err
 		}
 	}
 
-	cmd, err := writePipxCommand(bin, python, pipxHome, windows)
+	env := newPipxEnv(pipxHome)
+	cmd, err := writePipxCommand(bin, python, env, windows)
 	if err != nil {
 		return "", err
 	}
-	say("pipx: %s (environments in %s unless $PIPX_HOME is set)", cmd, pipxHome)
+	say("pipx: %s\n  environments in %s unless $PIPX_HOME is set\n"+
+		"  commands it installs in %s unless $PIPX_BIN_DIR is set; add that to your PATH\n"+
+		"  manual pages in %s unless $PIPX_MAN_DIR is set",
+		cmd, env.home, env.binDir, env.manDir)
 	return cmd, nil
 }
 
 // writePipxCommand writes the pipx command into bin, replacing the one pip
 // wrote, and returns its path.
-func writePipxCommand(bin, python, pipxHome string, windows bool) (string, error) {
-	name, script := "pipx", unixPipxScript(python, pipxHome)
+func writePipxCommand(bin, python string, env pipxEnv, windows bool) (string, error) {
+	name, script := "pipx", unixPipxScript(python, env)
 	if windows {
-		name, script = "pipx.cmd", windowsPipxScript(python, pipxHome)
+		name, script = "pipx.cmd", windowsPipxScript(python, env)
 	}
 	path := filepath.Join(bin, name)
 	tmp := path + "." + uniqueSuffix() + ".tmp"
@@ -105,24 +127,30 @@ func shQuote(s string) string {
 	return "'" + strings.ReplaceAll(s, "'", `'\''`) + "'"
 }
 
-func unixPipxScript(python, pipxHome string) string {
-	return "#!/bin/sh\n" +
-		"# Written by brainctl init or workctl init. Runs pipx with its environments next to the\n" +
-		"# Python distributions, unless PIPX_HOME is set.\n" +
-		`if [ -z "${PIPX_HOME:-}" ]; then PIPX_HOME=` + shQuote(pipxHome) + "; fi\n" +
-		"export PIPX_HOME\n" +
-		"exec " + shQuote(python) + ` -I -m pipx "$@"` + "\n"
+func unixPipxScript(python string, env pipxEnv) string {
+	script := "#!/bin/sh\n" +
+		"# Written by brainctl init or workctl init. Runs pipx with its environments\n" +
+		"# commands and manual pages next to the Python distributions, unless\n" +
+		"# PIPX_HOME, PIPX_BIN_DIR and PIPX_MAN_DIR are set.\n"
+	for _, v := range env.vars() {
+		script += `if [ -z "${` + v[0] + `:-}" ]; then ` + v[0] + `=` + shQuote(v[1]) + "; fi\n" +
+			"export " + v[0] + "\n"
+	}
+	return script + "exec " + shQuote(python) + ` -I -m pipx "$@"` + "\n"
 }
 
-func windowsPipxScript(python, pipxHome string) string {
+func windowsPipxScript(python string, env pipxEnv) string {
 	// In a batch file % starts a variable; %% is a literal %. Windows paths
 	// cannot contain ".
 	esc := func(s string) string { return strings.ReplaceAll(s, "%", "%%") }
-	return "@echo off\r\n" +
-		"rem Written by brainctl init or workctl init. Runs pipx with its environments next to the\r\n" +
-		"rem Python distributions, unless PIPX_HOME is set.\r\n" +
-		"setlocal\r\n" +
-		`if not defined PIPX_HOME set "PIPX_HOME=` + esc(pipxHome) + "\"\r\n" +
-		`"` + esc(python) + `" -I -m pipx %*` + "\r\n" +
+	script := "@echo off\r\n" +
+		"rem Written by brainctl init or workctl init. Runs pipx with its environments\r\n" +
+		"rem commands and manual pages next to the Python distributions, unless\r\n" +
+		"rem PIPX_HOME, PIPX_BIN_DIR and PIPX_MAN_DIR are set.\r\n" +
+		"setlocal\r\n"
+	for _, v := range env.vars() {
+		script += `if not defined ` + v[0] + ` set "` + v[0] + `=` + esc(v[1]) + "\"\r\n"
+	}
+	return script + `"` + esc(python) + `" -I -m pipx %*` + "\r\n" +
 		"exit /b %ERRORLEVEL%\r\n"
 }

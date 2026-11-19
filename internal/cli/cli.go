@@ -116,7 +116,7 @@ that has the preferred build; a note is printed if a newer one exists only as an
 		_, _ = fmt.Fprintf(stderr, "usage: %s init [flags]\n\n"+
 			"%s, then downloads a python-build-standalone\n"+
 			"distribution into the data directory and installs pipx into it, with its\n"+
-			"environments in the data directory's pipx directory.\n\nflags:\n",
+			"environments, commands and manual pages in the data directory's pipx directory.\n\nflags:\n",
 			name, initWrites(prog))
 		fs.PrintDefaults()
 	}

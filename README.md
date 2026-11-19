@@ -214,14 +214,20 @@ the binaries themselves are static.
 
 Last, `init` installs [pipx](https://pipx.pypa.io) into that distribution with its own `pip`
 (`python -m pip install pipx`). It skips `pip`, and so needs no download, if the distribution
-already has pipx; a new Python version gets its own pipx on the `init` that installs it. pipx
-keeps its environments in `<data dir>/pipx/` (for example `~/.local/share/pipx`), next to the
-Python distributions. pipx has no config file, only `$PIPX_HOME`, so `init` replaces the `pipx`
-command `pip` writes with a script that sets `PIPX_HOME` to that directory and runs pipx with the
-distribution's Python: `python/install/bin/pipx` on macOS and Linux, `python\install\Scripts\pipx.cmd`
-on Windows (where `init` also deletes `pip`'s `pipx.exe`, which would run first). A `$PIPX_HOME`
-you set yourself still wins. `init` rewrites the script on every run. pipx's other directories,
-such as `~/.local/bin` for the commands it installs, keep pipx's defaults.
+already has pipx; a new Python version gets its own pipx on the `init` that installs it.
+Everything pipx makes goes under `<data dir>/pipx/` (for example `~/.local/share/pipx`), next to
+the Python distributions:
+
+| Variable | Directory | What goes there |
+| --- | --- | --- |
+| `PIPX_HOME` | `<data dir>/pipx` | pipx's environments, one per tool |
+| `PIPX_BIN_DIR` | `<data dir>/pipx/bin` | the commands of the tools it installs: add this to your `PATH` |
+| `PIPX_MAN_DIR` | `<data dir>/pipx/man` | their manual pages |
+
+pipx has no config file, only these variables, so `init` replaces the `pipx` command `pip` writes
+with a script that sets each one it finds unset and runs pipx with the distribution's Python: `python/install/bin/pipx` on macOS and Linux, `python\install\Scripts\pipx.cmd`
+on Windows (where `init` also deletes `pip`'s `pipx.exe`, which would run first). A variable you
+set yourself still wins. `init` rewrites the script on every run.
 
 ### `extensions`
 
@@ -429,6 +435,15 @@ from [cerebrai-app/actions](https://github.com/cerebrai-app/actions) (`go-lint`,
 `go-cross-build` and `govulncheck`), along with golangci-lint, govulncheck, a build and `go vet`
 for every release platform, and the tests on Linux, macOS and Windows, each also on the `go`
 version from go.mod. Windows runs the tests without `-race`.
+
+An integration test downloads a real Python distribution (about 100 MB) into a temporary
+directory, installs pipx into it, installs a tool with that pipx and checks where everything
+landed. It needs network access, so it only runs with the `integration` build tag, and CI
+doesn't run it:
+
+```sh
+go test -tags integration -run Integration -v ./internal/python
+```
 
 ## Releasing
 
