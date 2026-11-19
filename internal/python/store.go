@@ -197,8 +197,8 @@ func writeFile(root *os.Root, name string, mode fs.FileMode, r io.Reader) error 
 	return root.Chmod(name, mode)
 }
 
-// now is the clock uniqueSuffix reads; tests replace it.
-var now = time.Now
+// clock is what uniqueSuffix reads the time from; tests replace it.
+var clock = time.Now
 
 // suffixCount numbers uniqueSuffix's calls in this process.
 var suffixCount atomic.Uint64
@@ -208,5 +208,5 @@ var suffixCount atomic.Uint64
 // process apart, since the clock can read the same twice in a row (on
 // Windows it often does).
 func uniqueSuffix() string {
-	return fmt.Sprintf("%d-%d-%d", os.Getpid(), now().UnixNano(), suffixCount.Add(1))
+	return fmt.Sprintf("%d-%d-%d", os.Getpid(), clock().UnixNano(), suffixCount.Add(1))
 }

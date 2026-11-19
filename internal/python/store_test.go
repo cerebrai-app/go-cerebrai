@@ -246,9 +246,9 @@ func TestUnpackRefusesEntriesThatEscapeTheInstallDir(t *testing.T) {
 // does on Windows.
 func TestUniqueSuffixDiffersBetweenCalls(t *testing.T) {
 	frozen := time.Now()
-	old := now
-	t.Cleanup(func() { now = old })
-	now = func() time.Time { return frozen }
+	old := clock
+	t.Cleanup(func() { clock = old })
+	clock = func() time.Time { return frozen }
 	a, b := uniqueSuffix(), uniqueSuffix()
 	if !strings.HasPrefix(a, fmt.Sprintf("%d-", os.Getpid())) {
 		t.Errorf("got %q", a)
