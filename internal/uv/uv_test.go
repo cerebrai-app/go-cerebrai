@@ -51,9 +51,20 @@ func TestNewDirs(t *testing.T) {
 	}
 }
 
+// written returns Dirs in a temporary directory, with the environment file
+// written.
+func written(t *testing.T) Dirs {
+	t.Helper()
+	d := NewDirs(filepath.Join(t.TempDir(), "brainctl"))
+	if err := WriteEnvFile(d); err != nil {
+		t.Fatal(err)
+	}
+	return d
+}
+
 func TestEnvKeepsUVInTheBrainctlDirectory(t *testing.T) {
-	d := NewDirs(filepath.Join(os.TempDir(), "brainctl"))
-	env := d.Env([]string{
+	d := written(t)
+	env, err := d.Env([]string{
 		"PATH=/bin",
 		"HTTPS_PROXY=http://proxy:3128",
 		"UV_INDEX_URL=https://pypi.example/simple",
@@ -66,6 +77,9 @@ func TestEnvKeepsUVInTheBrainctlDirectory(t *testing.T) {
 		"UV_CACHE_DIR=/home/u/.cache/uv",
 		"UV_TOOL_BIN_DIR=/home/u/.local/bin",
 	})
+	if err != nil {
+		t.Fatal(err)
+	}
 	want := []string{
 		"PATH=/bin",
 		"HTTPS_PROXY=http://proxy:3128",
@@ -84,10 +98,39 @@ func TestEnvKeepsUVInTheBrainctlDirectory(t *testing.T) {
 	}
 }
 
+// Variables the user adds to the file reach the process, over the ones in
+// the process environment.
+func TestEnvAddsTheFilesOtherVariables(t *testing.T) {
+	d := written(t)
+	appendFile(t, d.EnvFile(), "UV_INDEX_URL=https://brainctl.example/simple\nEMPTY=\n")
+	env, err := d.Env([]string{"UV_INDEX_URL=https://pypi.example/simple", "HOME=/home/u"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !slices.Contains(env, "UV_INDEX_URL=https://brainctl.example/simple") ||
+		slices.Contains(env, "UV_INDEX_URL=https://pypi.example/simple") ||
+		!slices.Contains(env, "EMPTY=") || !slices.Contains(env, "HOME=/home/u") {
+		t.Errorf("env %q", env)
+	}
+}
+
+func TestEnvNeedsTheFile(t *testing.T) {
+	d := NewDirs(t.TempDir())
+	if _, err := d.Env(nil); err == nil || !strings.Contains(err.Error(), "run brainctl init first") {
+		t.Errorf("no file: %v", err)
+	}
+	if _, err := d.Command(nil, "uv"); err == nil {
+		t.Error("Command without the file")
+	}
+}
+
 func TestCommandUsesEnv(t *testing.T) {
 	t.Setenv("UV_PYTHON", "3.12")
-	d := NewDirs(filepath.Join(os.TempDir(), "brainctl"))
-	cmd := d.Command(nil, "uv", "--version")
+	d := written(t)
+	cmd, err := d.Command(nil, "uv", "--version")
+	if err != nil {
+		t.Fatal(err)
+	}
 	if !slices.Contains(cmd.Env, "UV_CACHE_DIR="+d.Cache) {
 		t.Errorf("env %q", cmd.Env)
 	}

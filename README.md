@@ -192,6 +192,7 @@ uses the same one.
 | `python` | the Pythons uv installs |
 | `tools` | the tools uv installs (`uv tool install`) |
 | `cache` | uv's cache |
+| `env` | the environment brainctl runs uv and its tools in (see below) |
 
 The uv is a version pinned in `brainctl` (see [Updating uv](#updating-uv)), downloaded from uv's
 GitHub releases and checked against a SHA-256 built into `brainctl`, so a changed or corrupted
@@ -207,22 +208,35 @@ downloads Python only if that version isn't installed yet, and checks the downlo
 Windows, `init` passes `--no-registry`, so the Python isn't registered where other programs would
 find it.
 
-**This uv is kept apart from any uv you have.** `brainctl` starts every uv process with an
-environment of its own, so it never uses your uv's settings, Pythons, tools or cache, and never
-changes them:
+**This uv is kept apart from any uv you have.** `init` first writes the **environment file**,
+`env` in the brainctl directory, and `brainctl` reads it every time it starts uv or a tool uv
+installed, and sets its variables for that process. They keep uv in the brainctl directory, so it
+never uses your uv's settings, Pythons, tools or cache, and never changes them:
 
-- `UV_PYTHON_INSTALL_DIR`, `UV_PYTHON_BIN_DIR`, `UV_TOOL_DIR`, `UV_TOOL_BIN_DIR` and
-  `UV_CACHE_DIR` point into the brainctl directory;
-- `UV_MANAGED_PYTHON=1` makes it use only the Pythons in the brainctl directory, never the
-  system's or your uv's;
-- `UV_NO_CONFIG=1` makes it ignore `uv.toml` files and `[tool.uv]` settings;
-- your own `UV_PYTHON`, `UV_PYTHON_PREFERENCE`, `UV_NO_MANAGED_PYTHON`, `UV_SYSTEM_PYTHON`,
-  `UV_CONFIG_FILE` and `UV_NO_CACHE`, and the directory variables above, are dropped.
+```sh
+UV_PYTHON_INSTALL_DIR=~/.local/opt/brainctl/python   # written as absolute paths
+UV_PYTHON_BIN_DIR=~/.local/opt/brainctl/bin
+UV_TOOL_DIR=~/.local/opt/brainctl/tools
+UV_TOOL_BIN_DIR=~/.local/opt/brainctl/bin
+UV_CACHE_DIR=~/.local/opt/brainctl/cache
+UV_MANAGED_PYTHON=1   # only the Pythons in the brainctl directory, never the system's or yours
+UV_NO_CONFIG=1        # ignore uv.toml files and [tool.uv] settings
+```
 
-Other variables pass through, so proxy settings, package indexes (`UV_INDEX_URL` and the like)
-and `UV_SYSTEM_CERTS` still apply. Running `~/.local/opt/brainctl/bin/uv` yourself doesn't get
-this environment, so it acts like any other uv: run your own uv instead, and leave this one to
-`brainctl`.
+Each line is `NAME=value`, with nothing quoted: the value runs to the end of the line. Lines
+starting with `#` are comments. `init` sets these variables back to these values every time it
+runs, since changing them would undo the separation, and keeps anything else in the file. Add your
+own variables to it to set them for `brainctl`'s tools alone, for example a package index:
+`UV_INDEX_URL=https://pypi.example/simple`. `brainctl` refuses to run uv if the file is missing,
+malformed or lacks one of the variables above: run `brainctl init` to fix it. An invalid line is
+an error that `init` leaves for you to fix rather than overwriting the file.
+
+Your own `UV_PYTHON`, `UV_PYTHON_PREFERENCE`, `UV_NO_MANAGED_PYTHON`, `UV_SYSTEM_PYTHON`,
+`UV_CONFIG_FILE` and `UV_NO_CACHE`, and the variables the file sets, are left out of that
+process's environment. Other variables pass through, so proxy settings, package indexes
+(`UV_INDEX_URL` and the like) and `UV_SYSTEM_CERTS` still apply, unless the file sets them.
+Running `~/.local/opt/brainctl/bin/uv` yourself doesn't read the file, so it acts like any other
+uv: run your own uv instead, and leave this one to `brainctl`.
 
 Earlier releases of `brainctl` installed Python into
 `~/.local/share/python-build-standalone` (`%LOCALAPPDATA%\python-build-standalone` on Windows).
@@ -437,7 +451,8 @@ version from go.mod. Windows runs the tests without `-race`.
 
 An integration test installs the real uv and Python (about 60 MB of downloads) into a temporary
 brainctl directory, installs a tool with that uv, and checks that everything runs and lands in the
-brainctl directory, even with a `uv.toml` and `UV_*` variables of the user's pointing elsewhere. It needs network access, so it only runs with the `integration` build tag. CI runs it
+brainctl directory, even with a `uv.toml` and `UV_*` variables of the user's pointing elsewhere,
+and that the environment file is repaired and its variables reach the processes `brainctl` runs. It needs network access, so it only runs with the `integration` build tag. CI runs it
 after the tests on each platform, with the latest Go only:
 
 ```sh

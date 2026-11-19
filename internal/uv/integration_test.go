@@ -12,8 +12,9 @@ import (
 	"testing"
 )
 
-// TestIntegrationInstallAndPython downloads the real uv with Install and a
-// real Python with InstallPython into a temporary brainctl directory, then
+// TestIntegrationInstallAndPython writes the environment file with
+// WriteEnvFile, downloads the real uv with Install and a real Python with
+// InstallPython into a temporary brainctl directory, then
 // installs a tool with that uv, checking that everything runs and lands in the
 // brainctl directory, whatever the user's own uv settings say. It needs network
 // access, so it runs only with -tags integration.
@@ -58,6 +59,23 @@ func TestIntegrationInstallAndPython(t *testing.T) {
 		t.Errorf("brainctl directory %s, want %s", d.Root, want)
 	}
 
+	// An environment file edited by hand: a variable of the user's that must
+	// be kept, and a required one pointing elsewhere that must be put back.
+	if err := os.MkdirAll(d.Root, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	edited := "UV_CACHE_DIR=" + filepath.Join(decoy, "file-cache") + "\nBRAINCTL_TEST=from the env file\n"
+	if err := os.WriteFile(d.EnvFile(), []byte(edited), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if err := WriteEnvFile(d); err != nil {
+		t.Fatal(err)
+	}
+	if got := readFile(t, d.EnvFile()); !strings.Contains(got, "UV_CACHE_DIR="+d.Cache+"\n") ||
+		!strings.Contains(got, "BRAINCTL_TEST=from the env file\n") {
+		t.Errorf("env file:\n%s", got)
+	}
+
 	var log bytes.Buffer
 	t.Cleanup(func() {
 		if t.Failed() {
@@ -96,6 +114,11 @@ func TestIntegrationInstallAndPython(t *testing.T) {
 	if got := run(t, d, python, "-I", "-c",
 		"import sys; print('%d.%d' % sys.version_info[:2], sys._is_gil_enabled())"); got != "3.14 False" {
 		t.Errorf("Python reports %q, want 3.14 without the GIL", got)
+	}
+	// What the processes brainctl runs see: the env file's variables.
+	if got := run(t, d, python, "-I", "-c",
+		"import os; print(os.environ['BRAINCTL_TEST'], os.environ['UV_CACHE_DIR'], 'UV_PYTHON' in os.environ)"); got != "from the env file "+d.Cache+" False" {
+		t.Errorf("Python sees %q", got)
 	}
 	if _, err := os.Stat(filepath.Join(d.Bin, exe("python3.14t"))); err != nil {
 		t.Errorf("no python3.14t command: %v", err)
@@ -144,7 +167,10 @@ func within(dir, path string) bool {
 func run(t *testing.T, d Dirs, name string, args ...string) string {
 	t.Helper()
 	var stdout, stderr bytes.Buffer
-	cmd := d.Command(&stderr, name, args...)
+	cmd, err := d.Command(&stderr, name, args...)
+	if err != nil {
+		t.Fatal(err)
+	}
 	cmd.Stdout = &stdout
 	if err := cmd.Run(); err != nil {
 		t.Fatalf("%s %q: %v\n%s", name, args, err, stderr.String())

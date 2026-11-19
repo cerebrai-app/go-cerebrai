@@ -59,7 +59,10 @@ func Install(d Dirs, opts Options) error {
 // Tests replace it.
 var installedVersion = func(d Dirs) string {
 	var out bytes.Buffer
-	cmd := d.Command(io.Discard, d.UV(), "--version")
+	cmd, err := d.Command(io.Discard, d.UV(), "--version")
+	if err != nil {
+		return ""
+	}
 	cmd.Stdout = &out
 	if cmd.Run() != nil {
 		return ""

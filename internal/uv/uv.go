@@ -11,8 +11,9 @@
 //	tools/   tools uv installs
 //	cache/   uv's cache
 //
-// That works through the environment each uv process gets, from Env, so every
-// process must be started with Dirs.Command.
+// That works through the environment each uv process gets: the variables in
+// the environment file, env in the brainctl directory, which WriteEnvFile
+// writes and Dirs.Env reads. Every process must be started with Dirs.Command.
 //
 // The uv archive is checked against a SHA-256 built into this package, from
 // the release's sha256.sum when the version was pinned (see release.go). uv
@@ -105,7 +106,7 @@ func exe(name string) string {
 }
 
 // droppedVars are uv variables of the user's that would make uv look outside
-// the brainctl directory, or that conflict with the ones Env sets.
+// the brainctl directory, or that conflict with the environment file's.
 var droppedVars = []string{
 	"UV_PYTHON",
 	"UV_PYTHON_PREFERENCE",
@@ -120,30 +121,25 @@ var droppedVars = []string{
 	"UV_NO_CACHE",
 }
 
-// Env returns environ, such as os.Environ(), for a uv process: without the
-// user's droppedVars, and with variables that keep uv in the brainctl
-// directory. Other variables, such as proxy settings, package indexes and
-// UV_SYSTEM_CERTS, are kept.
-func (d Dirs) Env(environ []string) []string {
-	env := make([]string, 0, len(environ)+8)
+// Env returns environ, such as os.Environ(), for a process brainctl runs:
+// without the user's droppedVars, and with the variables in the environment
+// file, which keep uv in the brainctl directory. Other variables, such as
+// proxy settings, package indexes and UV_SYSTEM_CERTS, are kept. It fails if
+// the file is missing or broken.
+func (d Dirs) Env(environ []string) ([]string, error) {
+	vars, err := d.readEnvFile()
+	if err != nil {
+		return nil, err
+	}
+	env := make([]string, 0, len(environ)+len(vars))
 	for _, kv := range environ {
 		name, _, _ := strings.Cut(kv, "=")
-		if !containsFold(droppedVars, name) {
+		// The file's variables are dropped too, so each is set once.
+		if !containsFold(droppedVars, name) && !hasVar(vars, name) {
 			env = append(env, kv)
 		}
 	}
-	return append(env,
-		"UV_PYTHON_INSTALL_DIR="+d.Python,
-		"UV_PYTHON_BIN_DIR="+d.Bin,
-		"UV_TOOL_DIR="+d.Tools,
-		"UV_TOOL_BIN_DIR="+d.Bin,
-		"UV_CACHE_DIR="+d.Cache,
-		// Only Pythons in the brainctl directory, never the system's or the
-		// user's uv's.
-		"UV_MANAGED_PYTHON=1",
-		// Ignore the user's uv.toml and pyproject.toml settings.
-		"UV_NO_CONFIG=1",
-	)
+	return append(env, vars...), nil
 }
 
 // containsFold reports whether list holds name, ignoring case: Windows
@@ -159,12 +155,16 @@ func containsFold(list []string, name string) bool {
 
 // Command returns a command that runs name, such as d.UV(), with args, in the
 // environment from Env, with stdout and stderr going to log.
-func (d Dirs) Command(log io.Writer, name string, args ...string) *exec.Cmd {
+func (d Dirs) Command(log io.Writer, name string, args ...string) (*exec.Cmd, error) {
+	env, err := d.Env(os.Environ())
+	if err != nil {
+		return nil, err
+	}
 	cmd := exec.Command(name, args...)
-	cmd.Env = d.Env(os.Environ())
+	cmd.Env = env
 	cmd.Stdout = log
 	cmd.Stderr = log
-	return cmd
+	return cmd, nil
 }
 
 // Options says what SetUp installs.
@@ -205,11 +205,15 @@ type Result struct {
 	Python string
 }
 
-// SetUp installs uv into the brainctl directory for this user with Install,
-// then Python with InstallPython.
+// SetUp writes the environment file in the brainctl directory for this user
+// with WriteEnvFile, installs uv there with Install, then Python with
+// InstallPython.
 func SetUp(opts Options) (Result, error) {
 	d, err := DefaultDirs()
 	if err != nil {
+		return Result{}, err
+	}
+	if err := WriteEnvFile(d); err != nil {
 		return Result{}, err
 	}
 	if err := Install(d, opts); err != nil {

@@ -10,12 +10,15 @@ import (
 // runUV runs d's uv with args, sending its output to log, and returns its
 // standard output if capture is true. Tests replace it.
 var runUV = func(d Dirs, log io.Writer, capture bool, args ...string) (string, error) {
-	cmd := d.Command(log, d.UV(), args...)
+	cmd, err := d.Command(log, d.UV(), args...)
+	if err != nil {
+		return "", err
+	}
 	var out bytes.Buffer
 	if capture {
 		cmd.Stdout = &out
 	}
-	err := cmd.Run()
+	err = cmd.Run()
 	return out.String(), err
 }
 
