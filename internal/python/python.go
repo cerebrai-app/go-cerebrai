@@ -142,11 +142,15 @@ func install(opts Options, root, triple string, src source) (string, error) {
 	} else if err := installAsset(opts, log, src, tag, a, root, dest); err != nil {
 		return "", err
 	}
+	entries, err := os.ReadDir(root)
+	if err != nil {
+		// Without the list a link could move to an older version; leave it.
+		say("note: not linking %s: %v", dest, err)
+		return dest, nil
+	}
 	var installed []string
-	if entries, err := os.ReadDir(root); err == nil {
-		for _, e := range entries {
-			installed = append(installed, e.Name())
-		}
+	for _, e := range entries {
+		installed = append(installed, e.Name())
 	}
 	stable := filepath.Join(root, a.linkName(installed))
 	if err := linkStable(dest, stable); err != nil {
