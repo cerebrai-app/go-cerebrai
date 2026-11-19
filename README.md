@@ -395,7 +395,7 @@ can, since people may annotate the file.
 ## Supported Go versions
 
 The `go` line in `go.mod` is the oldest supported Go. CI tests with that version and with the
-latest stable Go; releases are built with the latest stable Go. Raise it only when the code needs
+latest stable Go, on Linux, macOS and Windows; releases are built with the latest stable Go. Raise it only when the code needs
 a newer release, and keep it within the [releases Go supports](https://go.dev/doc/devel/release#policy).
 
 ## Development
@@ -411,7 +411,8 @@ go run ./cmd/brainctl version
 CI ([`.github/workflows/ci.yml`](.github/workflows/ci.yml)) runs these through the Go actions
 from [cerebrai-app/actions](https://github.com/cerebrai-app/actions) (`go-lint`, `go-test`,
 `go-cross-build` and `govulncheck`), along with golangci-lint, govulncheck, a build and `go vet`
-for every release platform, and the tests on the `go` version from go.mod.
+for every release platform, and the tests on Linux, macOS and Windows, each also on the `go`
+version from go.mod. Windows runs the tests without `-race`.
 
 ## Releasing
 
