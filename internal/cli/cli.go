@@ -144,18 +144,22 @@ that has the preferred build; a note is printed if a newer one exists only as an
 	_, _ = fmt.Fprintf(stderr, "\n%s is ready in %s\n", name, dir)
 	if os.Getenv(brainconfig.EnvVar) == "" {
 		_, _ = fmt.Fprintf(stderr, "\nNext, set $%s so %s finds this brain from any directory.\n", brainconfig.EnvVar, name)
-		if profile, line := shellHint(runtime.GOOS, os.Getenv("SHELL"), dir); line != "" {
-			_, _ = fmt.Fprintf(stderr, "Add this line to %s, then open a new terminal:\n\n    %s\n", profile, line)
-		} else {
+		switch profile, line := shellHint(runtime.GOOS, os.Getenv("SHELL"), dir); {
+		case line == "":
 			_, _ = fmt.Fprintf(stderr, "Set it to %s in your shell's startup file.\n", dir)
+		case profile == "":
+			_, _ = fmt.Fprintf(stderr, "Run this once, then open a new terminal:\n\n    %s\n", line)
+		default:
+			_, _ = fmt.Fprintf(stderr, "Add this line to %s, then open a new terminal:\n\n    %s\n", profile, line)
 		}
 	}
 	return 0
 }
 
 // shellHint returns the shell profile to edit and the line that sets the
-// brain home to dir there, for the user's OS and $SHELL. The line is empty
-// for a shell it doesn't know the syntax of.
+// brain home to dir there, for the user's OS and $SHELL. The profile is empty
+// for a command to run once instead (Windows), and the line is empty for a
+// shell it doesn't know the syntax of.
 func shellHint(goos, shell, dir string) (profile, line string) {
 	env := brainconfig.EnvVar
 	if goos == "windows" {
@@ -164,7 +168,7 @@ func shellHint(goos, shell, dir string) (profile, line string) {
 			dir += `\`
 		}
 		// setx stores it for the user; there is no profile to edit.
-		return "a terminal (it is saved for new ones)", `setx ` + env + ` "` + dir + `"`
+		return "", `setx ` + env + ` "` + dir + `"`
 	}
 	export := "export " + env + "='" + strings.ReplaceAll(dir, "'", `'\''`) + "'"
 	switch filepath.Base(shell) {

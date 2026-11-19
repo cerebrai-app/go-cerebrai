@@ -3,6 +3,7 @@ package cli
 import (
 	"errors"
 	"io"
+	"runtime"
 	"strings"
 	"testing"
 
@@ -104,9 +105,16 @@ func (failingWriter) Write([]byte) (int, error) { return 0, io.ErrClosedPipe }
 
 func TestInitTellsHowToSetBrainHome(t *testing.T) {
 	stubInstall(t, nil)
+	// An unknown shell, so the result doesn't depend on the machine (but on
+	// Windows, setx is suggested whatever the shell).
+	t.Setenv("SHELL", "")
 	_, _, stderr := run("init")
-	if !strings.Contains(stderr, "brainctl is ready in "+mustGetwd(t)) || !strings.Contains(stderr, brainconfig.EnvVar) {
-		t.Errorf("no next step in %q", stderr)
+	want := "Set it to " + mustGetwd(t) + " in your shell's startup file."
+	if runtime.GOOS == "windows" {
+		want = "Run this once, then open a new terminal:\n\n    setx " + brainconfig.EnvVar
+	}
+	if !strings.Contains(stderr, "brainctl is ready in "+mustGetwd(t)) || !strings.Contains(stderr, want) {
+		t.Errorf("want %q in %q", want, stderr)
 	}
 	// Already set: nothing to tell.
 	t.Setenv(brainconfig.EnvVar, mustGetwd(t))
@@ -124,8 +132,8 @@ func TestShellHint(t *testing.T) {
 		{"linux", "/bin/sh", "/it's", "~/.profile", `export BRAIN_HOME='/it'\''s'`},
 		{"linux", "/usr/bin/tcsh", "/x", "", ""},
 		{"linux", "", "/x", "", ""},
-		{"windows", "", `C:\notes`, "a terminal (it is saved for new ones)", `setx BRAIN_HOME "C:\notes"`},
-		{"windows", "", `C:\`, "a terminal (it is saved for new ones)", `setx BRAIN_HOME "C:\\"`},
+		{"windows", "", `C:\notes`, "", `setx BRAIN_HOME "C:\notes"`},
+		{"windows", "", `C:\`, "", `setx BRAIN_HOME "C:\\"`},
 	} {
 		profile, line := shellHint(tc.goos, tc.shell, tc.dir)
 		if profile != tc.profile || line != tc.line {
