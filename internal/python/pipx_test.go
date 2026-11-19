@@ -34,22 +34,26 @@ func fakeDist(t *testing.T, windows bool) (dist, python, bin string) {
 	return dist, python, bin
 }
 
-// stubRunPython replaces runPython: "import pipx" succeeds if installed is
-// true, and pip install fails with pipErr. It returns the calls made.
-func stubRunPython(t *testing.T, installed bool, pipErr error) *[][]string {
+// stubRun replaces run: "import pipx" succeeds if installed is true, pip
+// install fails with pipErr and anything else (pipx install) with toolErr. It
+// returns the calls made.
+func stubRun(t *testing.T, installed bool, pipErr, toolErr error) *[][]string {
 	t.Helper()
 	var calls [][]string
-	old := runPython
-	t.Cleanup(func() { runPython = old })
-	runPython = func(_ io.Writer, python string, args ...string) error {
-		calls = append(calls, append([]string{python}, args...))
-		if slices.Contains(args, "import pipx") {
+	old := run
+	t.Cleanup(func() { run = old })
+	run = func(_ io.Writer, name string, args ...string) error {
+		calls = append(calls, append([]string{name}, args...))
+		switch {
+		case slices.Contains(args, "import pipx"):
 			if installed {
 				return nil
 			}
 			return errors.New("exit status 1")
+		case slices.Contains(args, "pip"):
+			return pipErr
 		}
-		return pipErr
+		return toolErr
 	}
 	return &calls
 }
@@ -57,7 +61,7 @@ func stubRunPython(t *testing.T, installed bool, pipErr error) *[][]string {
 func TestInstallPipx(t *testing.T) {
 	for _, windows := range []bool{false, true} {
 		dist, python, bin := fakeDist(t, windows)
-		calls := stubRunPython(t, false, nil)
+		calls := stubRun(t, false, nil, nil)
 		if windows {
 			// pip's own launcher, which would shadow pipx.cmd.
 			if err := os.WriteFile(filepath.Join(bin, "pipx.exe"), nil, 0o755); err != nil {
@@ -72,6 +76,7 @@ func TestInstallPipx(t *testing.T) {
 		want := [][]string{
 			{python, "-I", "-c", "import pipx"},
 			{python, "-I", "-m", "pip", "install", "--disable-pip-version-check", "--no-warn-script-location", "--root-user-action=ignore", "pipx"},
+			{cmd, "install", "uv"},
 		}
 		if !slices.EqualFunc(*calls, want, slices.Equal) {
 			t.Errorf("windows=%v: calls %q", windows, *calls)
@@ -111,11 +116,13 @@ func TestInstallPipx(t *testing.T) {
 
 func TestInstallPipxSkipsPipWhenInstalled(t *testing.T) {
 	dist, _, bin := fakeDist(t, false)
-	calls := stubRunPython(t, true, errors.New("pip must not run"))
-	if _, err := installPipx(dist, "/pipx", false, Options{Quiet: true}); err != nil {
+	calls := stubRun(t, true, errors.New("pip must not run"), nil)
+	cmd, err := installPipx(dist, "/pipx", false, Options{Quiet: true})
+	if err != nil {
 		t.Fatal(err)
 	}
-	if len(*calls) != 1 {
+	// uv is still installed: pipx leaves it alone if it is there already.
+	if len(*calls) != 2 || !slices.Equal((*calls)[1], []string{cmd, "install", "uv"}) {
 		t.Errorf("calls %q", *calls)
 	}
 	// The command is still written.
@@ -126,7 +133,7 @@ func TestInstallPipxSkipsPipWhenInstalled(t *testing.T) {
 
 func TestInstallPipxErrors(t *testing.T) {
 	dist, _, bin := fakeDist(t, false)
-	stubRunPython(t, false, errors.New("exit status 1"))
+	stubRun(t, false, errors.New("exit status 1"), nil)
 	if _, err := installPipx(dist, "/pipx", false, Options{Quiet: true}); err == nil ||
 		!strings.Contains(err.Error(), "installing pipx") {
 		t.Errorf("pip failure: %v", err)
@@ -135,7 +142,13 @@ func TestInstallPipxErrors(t *testing.T) {
 		t.Error("pipx command written although pip failed")
 	}
 
-	stubRunPython(t, false, nil)
+	stubRun(t, false, nil, errors.New("exit status 1"))
+	if _, err := installPipx(dist, "/pipx", false, Options{Quiet: true}); err == nil ||
+		!strings.Contains(err.Error(), "installing uv with") {
+		t.Errorf("pipx install failure: %v", err)
+	}
+
+	stubRun(t, false, nil, nil)
 	if _, err := installPipx(t.TempDir(), "/pipx", false, Options{Quiet: true}); err == nil ||
 		!strings.Contains(err.Error(), "run init again") {
 		t.Errorf("no interpreter: %v", err)

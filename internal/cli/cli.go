@@ -61,7 +61,7 @@ func Main(prog Program, args []string, stdout, stderr io.Writer) int {
 commands:
   version     print the %[1]s version
   init        set up %[2]s in the brain home, download a
-              python-build-standalone distribution and install pipx into it
+              python-build-standalone distribution and install pipx and uv
 %[4]s
 The brain home is $%[3]s if set, otherwise the current directory.
 Run "%[1]s <command> -h" for more about a command.
@@ -116,7 +116,8 @@ that has the preferred build; a note is printed if a newer one exists only as an
 		_, _ = fmt.Fprintf(stderr, "usage: %s init [flags]\n\n"+
 			"%s, then downloads a python-build-standalone\n"+
 			"distribution into the data directory and installs pipx into it, with its\n"+
-			"environments, commands and manual pages in the data directory's pipx directory.\n\nflags:\n",
+			"environments, commands and manual pages in the data directory's pipx directory,\n"+
+			"then installs uv with that pipx.\n\nflags:\n",
 			name, initWrites(prog))
 		fs.PrintDefaults()
 	}

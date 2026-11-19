@@ -13,10 +13,12 @@ import (
 // PipxPackage is what InstallPipx installs with pip.
 const PipxPackage = "pipx"
 
-// runPython runs the interpreter python with args, sending its output to log.
-// Tests replace it.
-var runPython = func(log io.Writer, python string, args ...string) error {
-	cmd := exec.Command(python, args...)
+// PipxTools are the tools InstallPipx installs with pipx.
+var PipxTools = []string{"uv"}
+
+// run runs name with args, sending its output to log. Tests replace it.
+var run = func(log io.Writer, name string, args ...string) error {
+	cmd := exec.Command(name, args...)
 	cmd.Stdout = log
 	cmd.Stderr = log
 	// Keep pip installing into the distribution, whatever the user's pip
@@ -30,10 +32,12 @@ var runPython = func(log io.Writer, python string, args ...string) error {
 // that keeps pipx's environments in <data dir>/pipx (PIPX_HOME), next to the
 // Python distributions, and the commands and manual pages it installs in
 // <data dir>/pipx/bin (PIPX_BIN_DIR) and <data dir>/pipx/man (PIPX_MAN_DIR),
-// unless those variables are set. It returns the command's path.
+// unless those variables are set. Last, it installs PipxTools with that
+// command. It returns the command's path.
 //
-// pip only runs, and so only needs network access, if pipx is not installed in
-// dist yet. The command is rewritten every time.
+// pip only runs if pipx is not installed in dist yet, and pipx leaves a tool
+// it has already installed alone, so neither needs network access then. The
+// command is rewritten every time.
 func InstallPipx(dist string, opts Options) (string, error) {
 	home, err := dataHome(os.Getenv("XDG_DATA_HOME"), os.Getenv("HOME"),
 		os.Getenv("LOCALAPPDATA"), os.Getenv("USERPROFILE"), runtime.GOOS == "windows")
@@ -75,11 +79,11 @@ func installPipx(dist, pipxHome string, windows bool, opts Options) (string, err
 
 	// -I: ignore PYTHON* variables, the user's site-packages and the current
 	// directory, so nothing outside the distribution changes what runs.
-	if runPython(io.Discard, python, "-I", "-c", "import pipx") == nil {
+	if run(io.Discard, python, "-I", "-c", "import pipx") == nil {
 		say("pipx already installed in %s", dist)
 	} else {
 		say("installing pipx into %s", dist)
-		if err := runPython(log, python, "-I", "-m", "pip", "install",
+		if err := run(log, python, "-I", "-m", "pip", "install",
 			"--disable-pip-version-check", "--no-warn-script-location", "--root-user-action=ignore", PipxPackage); err != nil {
 			return "", fmt.Errorf("installing pipx with %s: %w", python, err)
 		}
@@ -94,6 +98,14 @@ func installPipx(dist, pipxHome string, windows bool, opts Options) (string, err
 		"  commands it installs in %s unless $PIPX_BIN_DIR is set; add that to your PATH\n"+
 		"  manual pages in %s unless $PIPX_MAN_DIR is set",
 		cmd, env.home, env.binDir, env.manDir)
+
+	// Through the command, so the tools go where it says.
+	for _, tool := range PipxTools {
+		say("installing %s with pipx", tool)
+		if err := run(log, cmd, "install", tool); err != nil {
+			return "", fmt.Errorf("installing %s with %s: %w", tool, cmd, err)
+		}
+	}
 	return cmd, nil
 }
 

@@ -13,7 +13,8 @@ import (
 )
 
 // TestIntegrationInstallAndPipx downloads a real distribution with Install,
-// installs pipx into it with InstallPipx, then installs a tool with that pipx,
+// installs pipx, and uv with it, into it with InstallPipx, then installs
+// another tool with that pipx,
 // checking that each step's output lands where it should. It needs network
 // access and downloads about 100 MB, so it runs only with -tags integration.
 func TestIntegrationInstallAndPipx(t *testing.T) {
@@ -63,6 +64,9 @@ func TestIntegrationInstallAndPipx(t *testing.T) {
 	if !strings.Contains(log.String(), "installing pipx into "+dist) {
 		t.Error("pip did not run")
 	}
+	if !strings.Contains(log.String(), "installing uv with pipx") {
+		t.Error("uv was not installed")
+	}
 	pipxHome := filepath.Join(data, "pipx")
 	binDir := filepath.Join(pipxHome, "bin")
 	manDir := filepath.Join(pipxHome, "man")
@@ -85,15 +89,24 @@ func TestIntegrationInstallAndPipx(t *testing.T) {
 		t.Errorf("second run: %s", log.String())
 	}
 
+	// uv, which InstallPipx installed, and uvx, which comes with it.
+	if !exists(filepath.Join(pipxHome, "venvs", "uv")) {
+		t.Errorf("no uv environment in %s", pipxHome)
+	}
+	for _, name := range []string{"uv", "uvx"} {
+		if got := output(t, command(binDir, name), "--version"); !strings.HasPrefix(got, name+" ") {
+			t.Errorf("%s --version printed %q", name, got)
+		}
+	}
+	if got := output(t, pipx, "list", "--short"); !strings.Contains(got, "uv ") {
+		t.Errorf("pipx list: %q", got)
+	}
+
 	output(t, pipx, "install", "pycowsay")
 	if !exists(filepath.Join(pipxHome, "venvs", "pycowsay")) {
 		t.Errorf("no pycowsay environment in %s", pipxHome)
 	}
-	cowsay := filepath.Join(binDir, "pycowsay")
-	if runtime.GOOS == "windows" {
-		cowsay += ".exe"
-	}
-	if got := output(t, cowsay, "moo from pipx"); !strings.Contains(got, "moo from pipx") {
+	if got := output(t, command(binDir, "pycowsay"), "moo from pipx"); !strings.Contains(got, "moo from pipx") {
 		t.Errorf("pycowsay printed %q", got)
 	}
 	if !exists(filepath.Join(manDir, "man6", "pycowsay.6")) {
@@ -105,6 +118,14 @@ func TestIntegrationInstallAndPipx(t *testing.T) {
 			t.Errorf("pipx wrote to its default directory %s", filepath.Join(home, d))
 		}
 	}
+}
+
+// command is the path of the command name in dir.
+func command(dir, name string) string {
+	if runtime.GOOS == "windows" {
+		name += ".exe"
+	}
+	return filepath.Join(dir, name)
 }
 
 // output runs name with args and returns its trimmed standard output, failing

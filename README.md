@@ -12,7 +12,7 @@ They replace the Rust [brainctl](https://github.com/cerebrai-app/brainctl) and
 | [`cmd/brainctl`](cmd/brainctl), [`cmd/workctl`](cmd/workctl) | the two programs; each only calls `cli.Main` with its name (and `workctl` with its extension ID and the schema version of its settings) |
 | [`internal/cli`](internal/cli) | the command line both programs share: `version`, `init` and `config`, and `brainctl`'s `extensions` |
 | [`brainconfig`](brainconfig) | reads and writes the brain config file, `.brain/config.yaml`, for `brainctl` and its extensions, including [third-party ones](#writing-an-extension) |
-| [`internal/python`](internal/python) | downloads, verifies and unpacks [python-build-standalone](https://github.com/astral-sh/python-build-standalone) distributions (the port of the `cerebrai-python` crate) and installs pipx into them |
+| [`internal/python`](internal/python) | downloads, verifies and unpacks [python-build-standalone](https://github.com/astral-sh/python-build-standalone) distributions (the port of the `cerebrai-python` crate) and installs pipx, and uv with it, into them |
 | [`internal/buildinfo`](internal/buildinfo) | `buildinfo.Version()`: the version the release links in from the tag, else the module version from `go install`, else `dev` |
 
 Shared code lives under `internal/`, so only these programs can import it and it has no API of
@@ -229,6 +229,10 @@ with a script that sets each one it finds unset and runs pipx with the distribut
 on Windows (where `init` also deletes `pip`'s `pipx.exe`, which would run first). A variable you
 set yourself still wins. `init` rewrites the script on every run.
 
+Then `init` runs `pipx install uv` with that script, so [uv](https://docs.astral.sh/uv/) (and
+`uvx`) end up in `<data dir>/pipx/bin`. pipx leaves uv alone if it is already installed, so later
+runs neither download nor upgrade it: run `pipx upgrade uv` for a newer one.
+
 ### `extensions`
 
 `brainctl extensions ls` (or `l`, or `list`) lists the extensions with settings in the brain
@@ -437,8 +441,8 @@ for every release platform, and the tests on Linux, macOS and Windows, each also
 version from go.mod. Windows runs the tests without `-race`.
 
 An integration test downloads a real Python distribution (about 100 MB) into a temporary
-directory, installs pipx into it, installs a tool with that pipx and checks where everything
-landed. It needs network access, so it only runs with the `integration` build tag. CI runs it
+directory, installs pipx and uv into it, installs another tool with that pipx and checks where
+everything landed and that `uv`, `uvx` and the tool run. It needs network access, so it only runs with the `integration` build tag. CI runs it
 after the tests on each platform, with the latest Go only:
 
 ```sh
