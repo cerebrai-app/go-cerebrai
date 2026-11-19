@@ -97,14 +97,17 @@ func TestInstallDownloadsOnceThenReusesTheInstall(t *testing.T) {
 	if got := readFile(t, filepath.Join(dest, "python", "PYTHON.json")); got != "hi" {
 		t.Errorf("got %q", got)
 	}
-	// Only the install itself is left: no .download or .partial temp files.
+	// Only the install and its link (if this OS allows symlinks) are left: no
+	// .download or .partial temp files.
 	entries, err := os.ReadDir(root)
 	if err != nil {
 		t.Fatal(err)
 	}
 	var names []string
 	for _, e := range entries {
-		names = append(names, e.Name())
+		if e.Name() != "3.14" {
+			names = append(names, e.Name())
+		}
 	}
 	if !slices.Equal(names, []string{"3.14.1+freethreaded+pgo+lto"}) {
 		t.Errorf("left in root: %q", names)
@@ -125,6 +128,70 @@ func TestInstallDownloadsOnceThenReusesTheInstall(t *testing.T) {
 	}
 	if n := s.count(archivePath); n != 1 {
 		t.Errorf("archive fetched %d times", n)
+	}
+}
+
+func TestInstallRepointsTheStableLink(t *testing.T) {
+	s, _ := release(t, "")
+	root := filepath.Join(t.TempDir(), "python-build-standalone")
+	if err := os.MkdirAll(root, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	link := filepath.Join(root, "3.14")
+	// A link left by an older patch version.
+	if err := os.Symlink("3.14.0+freethreaded+pgo+lto", link); err != nil {
+		t.Skipf("no symlinks here: %v", err)
+	}
+	opts := Options{PythonVersion: "3.14", Quiet: true}
+	// The first run installs, the second finds the install; both replace an existing link.
+	for range 2 {
+		if _, err := install(opts, root, testTriple, s.source()); err != nil {
+			t.Fatal(err)
+		}
+		if got, err := os.Readlink(link); err != nil || got != "3.14.1+freethreaded+pgo+lto" {
+			t.Errorf("link -> %q, %v", got, err)
+		}
+		if got := readFile(t, filepath.Join(link, "python", "PYTHON.json")); got != "hi" {
+			t.Errorf("through the link: got %q", got)
+		}
+	}
+}
+
+func TestInstallLinksAnOlderPatchByItsFullVersion(t *testing.T) {
+	s, _ := release(t, "")
+	root := filepath.Join(t.TempDir(), "python-build-standalone")
+	if err := os.MkdirAll(filepath.Join(root, "3.14.9+pgo+lto"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Symlink("3.14.9+pgo+lto", filepath.Join(root, "3.14")); err != nil {
+		t.Skipf("no symlinks here: %v", err)
+	}
+	if _, err := install(Options{PythonVersion: "3.14", Quiet: true}, root, testTriple, s.source()); err != nil {
+		t.Fatal(err)
+	}
+	for link, want := range map[string]string{"3.14": "3.14.9+pgo+lto", "3.14.1": "3.14.1+freethreaded+pgo+lto"} {
+		if got, err := os.Readlink(filepath.Join(root, link)); err != nil || got != want {
+			t.Errorf("%s -> %q, %v; want %q", link, got, err, want)
+		}
+	}
+}
+
+func TestInstallKeepsADirectoryNamedLikeTheLink(t *testing.T) {
+	s, _ := release(t, "")
+	root := filepath.Join(t.TempDir(), "python-build-standalone")
+	mine := filepath.Join(root, "3.14", "mine")
+	if err := os.MkdirAll(mine, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	var log bytes.Buffer
+	if _, err := install(Options{PythonVersion: "3.14", Log: &log}, root, testTriple, s.source()); err != nil {
+		t.Fatal(err)
+	}
+	if !exists(mine) {
+		t.Error("the user's directory was replaced")
+	}
+	if !strings.Contains(log.String(), "note: could not link") {
+		t.Errorf("log:\n%s", log.String())
 	}
 }
 

@@ -166,3 +166,23 @@ func TestAvailable(t *testing.T) {
 		t.Errorf("3.15: got %q", got)
 	}
 }
+
+func TestLinkNameIsMajorMinorOnlyForTheHighestPatch(t *testing.T) {
+	a := asset{version: []int{3, 14, 2}, buildOptions: "pgo+lto"}
+	for _, tc := range []struct {
+		installed []string
+		want      string
+	}{
+		{nil, "3.14"},
+		{[]string{"3.14.2+pgo+lto", "3.14", "3.14.1+pgo+lto", "3.13.9+pgo+lto", "3.15.0+pgo+lto"}, "3.14"},
+		// Another build of the same version doesn't count as higher.
+		{[]string{"3.14.2+freethreaded+pgo+lto"}, "3.14"},
+		{[]string{"3.14.10+freethreaded+pgo+lto"}, "3.14.2"},
+		// An unfinished install of a higher version doesn't count yet.
+		{[]string{"3.14.10+pgo+lto.1-2.partial", "3.14.10+pgo+lto.1-2.download"}, "3.14"},
+	} {
+		if got := a.linkName(tc.installed); got != tc.want {
+			t.Errorf("%q: got %q, want %q", tc.installed, got, tc.want)
+		}
+	}
+}

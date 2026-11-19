@@ -9,6 +9,7 @@ import (
 	"os"
 	"path"
 	"path/filepath"
+	"runtime"
 	"slices"
 	"strings"
 	"sync/atomic"
@@ -47,6 +48,35 @@ func renameRetrying(from, to string, attempts int, delay time.Duration) error {
 func exists(name string) bool {
 	_, err := os.Lstat(name)
 	return err == nil
+}
+
+// linkStable points the symlink link at target, a sibling of it, replacing
+// whatever link is there. The new link is made under a temporary name and
+// renamed over the old one, so readers never see link missing.
+func linkStable(target, link string) error {
+	// Also clears temp links of killed runs when nothing new is installed.
+	sweepStaleTemps(filepath.Dir(link), staleTempAge)
+	if fi, err := os.Lstat(link); err == nil && fi.Mode()&os.ModeSymlink == 0 {
+		return fmt.Errorf("%s exists and is not a symlink", link)
+	}
+	// Relative, so the data directory can be moved or mounted elsewhere.
+	tmp := link + "." + uniqueSuffix() + ".partial"
+	if err := os.Symlink(filepath.Base(target), tmp); err != nil {
+		return err
+	}
+	if err := os.Rename(tmp, link); err != nil {
+		// Windows can refuse to rename over a directory symlink: remove it
+		// first, leaving a brief moment without the link. Elsewhere the
+		// rename is atomic, so a failure keeps the old link.
+		// shortcut: untested, and if the second rename fails the link is
+		// gone until the next init; add a rename seam and test it if
+		// Windows users hit this.
+		if runtime.GOOS != "windows" || os.Remove(link) != nil || os.Rename(tmp, link) != nil {
+			_ = os.Remove(tmp)
+			return err
+		}
+	}
+	return nil
 }
 
 // sweepStaleTemps removes *.download and *.partial entries in root that have

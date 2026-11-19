@@ -35,6 +35,24 @@ func (a asset) dirName() string {
 	return versionString(a.version) + "+" + a.buildOptions
 }
 
+// linkName is the name of the link to a's install, given the names of the
+// entries in the install root: <major.minor> (e.g. 3.14) if no installed
+// version of that major.minor is higher, otherwise <major.minor.patch>.
+func (a asset) linkName(installed []string) string {
+	minor := a.version[:min(2, len(a.version))]
+	for _, name := range installed {
+		if strings.HasSuffix(name, ".partial") || strings.HasSuffix(name, ".download") {
+			continue // another run's unfinished install
+		}
+		v, ok := parseVersion(strings.SplitN(name, "+", 2)[0])
+		if ok && strings.Contains(name, "+") && len(v) > len(minor) &&
+			slices.Equal(v[:len(minor)], minor) && slices.Compare(v, a.version) > 0 {
+			return versionString(a.version)
+		}
+	}
+	return versionString(minor)
+}
+
 func versionString(v []int) string {
 	parts := make([]string, len(v))
 	for i, n := range v {
