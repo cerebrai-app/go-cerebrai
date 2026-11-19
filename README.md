@@ -105,6 +105,10 @@ export BRAIN_HOME=~/notes                 # then, from anywhere:
 brainctl init && workctl init             # both use ~/notes/.brain/config.yaml
 ```
 
+When `$BRAIN_HOME` is not set, `init` ends by printing the line that sets it to the brain home
+for your shell (`export` for zsh, bash and other sh-like shells, `set -gx` for fish, `setx` on
+Windows) and the profile to add it to. For other shells it prints the path to set it to.
+
 The config lives next to the brain's data so it is backed up or committed with it. `$BRAIN_HOME`
 must name an existing directory (a relative path is taken from the current directory): a typo is an
 error rather than a new, empty brain somewhere else.
