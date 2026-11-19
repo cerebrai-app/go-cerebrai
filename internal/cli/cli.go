@@ -10,7 +10,9 @@ import (
 	"flag"
 	"fmt"
 	"io"
+	"os"
 	"path/filepath"
+	"runtime"
 	"slices"
 	"strings"
 
@@ -139,7 +141,38 @@ that has the preferred build; a note is printed if a newer one exists only as an
 		_, _ = fmt.Fprintf(stderr, "error: %v\n", err)
 		return 1
 	}
+	_, _ = fmt.Fprintf(stderr, "\n%s is ready in %s\n", name, dir)
+	if os.Getenv(brainconfig.EnvVar) == "" {
+		profile, line := shellHint(runtime.GOOS, os.Getenv("SHELL"), dir)
+		_, _ = fmt.Fprintf(stderr, "\nNext, set $%s so %s finds this brain from any directory.\n"+
+			"Add this line to %s, then open a new terminal:\n\n    %s\n",
+			brainconfig.EnvVar, name, profile, line)
+	}
 	return 0
+}
+
+// shellHint returns the shell profile to edit and the line that sets the
+// brain home to dir there, for the user's OS and $SHELL.
+func shellHint(goos, shell, dir string) (profile, line string) {
+	env := brainconfig.EnvVar
+	if goos == "windows" {
+		// setx stores it for the user; there is no profile to edit.
+		return "a terminal (it is saved for new ones)", `setx ` + env + ` "` + dir + `"`
+	}
+	// Single quotes keep the path literal in sh and fish alike.
+	quoted := "'" + strings.ReplaceAll(dir, "'", `'\''`) + "'"
+	switch filepath.Base(shell) {
+	case "fish":
+		return "~/.config/fish/config.fish", "set -gx " + env + " " + quoted
+	case "zsh":
+		return "~/.zshrc", "export " + env + "=" + quoted
+	case "bash":
+		if goos == "darwin" {
+			return "~/.bash_profile", "export " + env + "=" + quoted
+		}
+		return "~/.bashrc", "export " + env + "=" + quoted
+	}
+	return "your shell profile", "export " + env + "=" + quoted
 }
 
 // initWrites says what init does to the config file for prog, for its usage.

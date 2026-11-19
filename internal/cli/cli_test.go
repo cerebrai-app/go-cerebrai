@@ -101,3 +101,32 @@ func TestVersionWriteError(t *testing.T) {
 type failingWriter struct{}
 
 func (failingWriter) Write([]byte) (int, error) { return 0, io.ErrClosedPipe }
+
+func TestInitTellsHowToSetBrainHome(t *testing.T) {
+	stubInstall(t, nil)
+	_, _, stderr := run("init")
+	if !strings.Contains(stderr, "brainctl is ready in "+mustGetwd(t)) || !strings.Contains(stderr, brainconfig.EnvVar) {
+		t.Errorf("no next step in %q", stderr)
+	}
+	// Already set: nothing to tell.
+	t.Setenv(brainconfig.EnvVar, mustGetwd(t))
+	if _, _, stderr := run("init"); strings.Contains(stderr, "Next, set") {
+		t.Errorf("hint with %s set: %q", brainconfig.EnvVar, stderr)
+	}
+}
+
+func TestShellHint(t *testing.T) {
+	for _, tc := range []struct{ goos, shell, dir, profile, line string }{
+		{"darwin", "/bin/zsh", "/Users/me/notes", "~/.zshrc", "export BRAIN_HOME='/Users/me/notes'"},
+		{"linux", "/usr/bin/bash", "/home/me/my notes", "~/.bashrc", "export BRAIN_HOME='/home/me/my notes'"},
+		{"darwin", "/bin/bash", "/x", "~/.bash_profile", "export BRAIN_HOME='/x'"},
+		{"linux", "/usr/bin/fish", "/it's", "~/.config/fish/config.fish", `set -gx BRAIN_HOME '/it'\''s'`},
+		{"linux", "", "/x", "your shell profile", "export BRAIN_HOME='/x'"},
+		{"windows", "", `C:\notes`, "a terminal (it is saved for new ones)", `setx BRAIN_HOME "C:\notes"`},
+	} {
+		profile, line := shellHint(tc.goos, tc.shell, tc.dir)
+		if profile != tc.profile || line != tc.line {
+			t.Errorf("%s %q: got %q, %q", tc.goos, tc.shell, profile, line)
+		}
+	}
+}
