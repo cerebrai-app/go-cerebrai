@@ -87,6 +87,14 @@ func TestInstallDownloadsOnceThenReusesTheInstall(t *testing.T) {
 	var log bytes.Buffer
 	opts := Options{PythonVersion: "3.14", Log: &log}
 
+	// A link left by an older patch version is repointed at the new install.
+	if err := os.MkdirAll(root, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Symlink("3.14.0+freethreaded+pgo+lto", filepath.Join(root, "3.14")); err != nil {
+		t.Skipf("no symlinks here: %v", err)
+	}
+
 	dest, err := install(opts, root, testTriple, s.source())
 	if err != nil {
 		t.Fatal(err)
@@ -97,7 +105,10 @@ func TestInstallDownloadsOnceThenReusesTheInstall(t *testing.T) {
 	if got := readFile(t, filepath.Join(dest, "python", "PYTHON.json")); got != "hi" {
 		t.Errorf("got %q", got)
 	}
-	// Only the install itself is left: no .download or .partial temp files.
+	if got := readFile(t, filepath.Join(root, "3.14", "python", "PYTHON.json")); got != "hi" {
+		t.Errorf("through the stable link: got %q", got)
+	}
+	// Only the install and its link are left: no .download or .partial temp files.
 	entries, err := os.ReadDir(root)
 	if err != nil {
 		t.Fatal(err)
@@ -106,7 +117,7 @@ func TestInstallDownloadsOnceThenReusesTheInstall(t *testing.T) {
 	for _, e := range entries {
 		names = append(names, e.Name())
 	}
-	if !slices.Equal(names, []string{"3.14.1+freethreaded+pgo+lto"}) {
+	if !slices.Equal(names, []string{"3.14", "3.14.1+freethreaded+pgo+lto"}) {
 		t.Errorf("left in root: %q", names)
 	}
 	for _, line := range []string{"downloading cpython-3.14.1+", "extracting to ", "installed: " + dest} {

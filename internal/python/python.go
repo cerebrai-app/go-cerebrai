@@ -5,7 +5,9 @@
 //
 // Layout: <data dir>/python-build-standalone/<version>+<build options>/ (e.g.
 // 3.14.10+freethreaded+pgo+lto), holding the archive's own python/ tree. If
-// that directory already exists nothing is downloaded. The data dir is
+// that directory already exists nothing is downloaded. A sibling symlink
+// named <major.minor> (e.g. 3.14) points at the latest install of that
+// Python version, whichever build options it has, so its path survives patch upgrades. The data dir is
 // $XDG_DATA_HOME if set to an absolute path, otherwise %LOCALAPPDATA% on
 // Windows and ~/.local/share elsewhere.
 //
@@ -136,11 +138,25 @@ func install(opts Options, root, triple string, src source) (string, error) {
 	dest := filepath.Join(root, a.dirName())
 	if exists(dest) {
 		say("already installed: %s", dest)
-		return dest, nil
+	} else if err := installAsset(opts, log, src, tag, a, root, dest); err != nil {
+		return "", err
 	}
+	stable := filepath.Join(root, a.stableName())
+	if err := linkStable(dest, stable); err != nil {
+		// The install itself worked; e.g. Windows refuses symlinks without Developer Mode.
+		say("note: could not link %s: %v", stable, err)
+	} else {
+		say("linked: %s -> %s", stable, a.dirName())
+	}
+	return dest, nil
+}
+
+// installAsset downloads and unpacks a into dest, a new directory in root.
+func installAsset(opts Options, log io.Writer, src source, tag string, a asset, root, dest string) error {
+	say := func(format string, args ...any) { _, _ = fmt.Fprintf(log, format+"\n", args...) }
 
 	if err := os.MkdirAll(root, 0o755); err != nil {
-		return "", err
+		return err
 	}
 	sweepStaleTemps(root, staleTempAge)
 	// Temp names include the process id and the start time, so concurrent runs
@@ -154,14 +170,14 @@ func install(opts Options, root, triple string, src source) (string, error) {
 	_ = os.Remove(archive)
 	_ = os.RemoveAll(partial)
 	if err != nil {
-		return "", err
+		return err
 	}
 	if installed {
 		say("installed: %s", dest)
 	} else {
 		say("already installed by another process: %s", dest)
 	}
-	return dest, nil
+	return nil
 }
 
 // downloadAndUnpack downloads, verifies and unpacks a into dest. It returns

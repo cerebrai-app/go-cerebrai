@@ -49,6 +49,25 @@ func exists(name string) bool {
 	return err == nil
 }
 
+// linkStable points the symlink link at target, a sibling of it, replacing
+// whatever link is there. The new link is made under a temporary name and
+// renamed over the old one, so readers never see link missing.
+func linkStable(target, link string) error {
+	if fi, err := os.Lstat(link); err == nil && fi.Mode()&os.ModeSymlink == 0 {
+		return fmt.Errorf("%s exists and is not a symlink", link)
+	}
+	// Relative, so the data directory can be moved or mounted elsewhere.
+	tmp := link + "." + uniqueSuffix() + ".partial"
+	if err := os.Symlink(filepath.Base(target), tmp); err != nil {
+		return err
+	}
+	if err := os.Rename(tmp, link); err != nil {
+		_ = os.Remove(tmp)
+		return err
+	}
+	return nil
+}
+
 // sweepStaleTemps removes *.download and *.partial entries in root that have
 // not been modified for maxAge: leftovers from a run that was killed (e.g.
 // Ctrl-C). Recent ones may belong to a run in progress, so they are left

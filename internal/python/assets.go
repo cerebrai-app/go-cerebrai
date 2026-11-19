@@ -35,6 +35,12 @@ func (a asset) dirName() string {
 	return versionString(a.version) + "+" + a.buildOptions
 }
 
+// stableName is the name of the link to the install that stays the same
+// across patch versions, e.g. 3.14.
+func (a asset) stableName() string {
+	return versionString(a.version[:min(2, len(a.version))])
+}
+
 func versionString(v []int) string {
 	parts := make([]string, len(v))
 	for i, n := range v {
