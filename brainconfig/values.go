@@ -7,7 +7,7 @@ import (
 	"slices"
 	"strings"
 
-	"go.yaml.in/yaml/v3"
+	"go.yaml.in/yaml/v4"
 )
 
 // Values in the config file, addressed by a key path: keys separated by "/",

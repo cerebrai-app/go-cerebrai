@@ -85,7 +85,7 @@ func TestExtensionsList(t *testing.T) {
 		{"com.example.badname", "-", "-", "invalid settings for extension com.example.badname: invalid name: empty"},
 		{"com.example.broken", "-", "-", "invalid config file: the settings for extension com.example.broken must be a mapping"},
 		{"com.example.gone", "-", missingAbs, "not found"},
-		{"com.example.multiline", "-", "-", "invalid settings for extension com.example.multiline: yaml: unmarshal errors: line 11: cannot unmarshal !!seq into string"},
+		{"com.example.multiline", "-", "-", "invalid settings for extension com.example.multiline: yaml: construct errors: line 11: cannot construct !!seq into string"},
 		{"com.example.newer", "-", "workctl", workctlPath},
 		{"com.example.nobin", "No Bin", "-", "no bin set"},
 		{"com.example.tool", "Example Tool", toolPath, toolPath},
