@@ -51,6 +51,16 @@ func lockConfig(path string) (unlock func(), err error) {
 	if err != nil {
 		return nil, fmt.Errorf("locking %s: %w", path, err)
 	}
+	// Opening a directory read-only succeeds on macOS, where Linux refuses it,
+	// and flock works on it there; refuse anything but a regular file
+	// everywhere, so every platform and every extension agree on the lock.
+	if info, err := f.Stat(); err != nil || !info.Mode().IsRegular() {
+		_ = f.Close()
+		if err != nil {
+			return nil, fmt.Errorf("locking %s: %w", path, err)
+		}
+		return nil, fmt.Errorf("locking %s: the lock file %s is not a regular file: remove it and try again", path, lp)
+	}
 	deadline := time.Now().Add(lockTimeout)
 	for {
 		locked, err := tryLock(f)
