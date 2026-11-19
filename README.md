@@ -438,8 +438,8 @@ version from go.mod. Windows runs the tests without `-race`.
 
 An integration test downloads a real Python distribution (about 100 MB) into a temporary
 directory, installs pipx into it, installs a tool with that pipx and checks where everything
-landed. It needs network access, so it only runs with the `integration` build tag, and CI
-doesn't run it:
+landed. It needs network access, so it only runs with the `integration` build tag. CI runs it
+after the tests on each platform, with the latest Go only:
 
 ```sh
 go test -tags integration -run Integration -v ./internal/python
