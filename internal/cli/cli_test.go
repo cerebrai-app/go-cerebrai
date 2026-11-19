@@ -120,9 +120,12 @@ func TestShellHint(t *testing.T) {
 		{"darwin", "/bin/zsh", "/Users/me/notes", "~/.zshrc", "export BRAIN_HOME='/Users/me/notes'"},
 		{"linux", "/usr/bin/bash", "/home/me/my notes", "~/.bashrc", "export BRAIN_HOME='/home/me/my notes'"},
 		{"darwin", "/bin/bash", "/x", "~/.bash_profile", "export BRAIN_HOME='/x'"},
-		{"linux", "/usr/bin/fish", "/it's", "~/.config/fish/config.fish", `set -gx BRAIN_HOME '/it'\''s'`},
-		{"linux", "", "/x", "your shell profile", "export BRAIN_HOME='/x'"},
+		{"linux", "/usr/bin/fish", `/it's\`, "~/.config/fish/config.fish", `set -gx BRAIN_HOME '/it\'s\\'`},
+		{"linux", "/bin/sh", "/it's", "~/.profile", `export BRAIN_HOME='/it'\''s'`},
+		{"linux", "/usr/bin/tcsh", "/x", "", ""},
+		{"linux", "", "/x", "", ""},
 		{"windows", "", `C:\notes`, "a terminal (it is saved for new ones)", `setx BRAIN_HOME "C:\notes"`},
+		{"windows", "", `C:\`, "a terminal (it is saved for new ones)", `setx BRAIN_HOME "C:\\"`},
 	} {
 		profile, line := shellHint(tc.goos, tc.shell, tc.dir)
 		if profile != tc.profile || line != tc.line {

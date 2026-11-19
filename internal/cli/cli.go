@@ -143,36 +143,46 @@ that has the preferred build; a note is printed if a newer one exists only as an
 	}
 	_, _ = fmt.Fprintf(stderr, "\n%s is ready in %s\n", name, dir)
 	if os.Getenv(brainconfig.EnvVar) == "" {
-		profile, line := shellHint(runtime.GOOS, os.Getenv("SHELL"), dir)
-		_, _ = fmt.Fprintf(stderr, "\nNext, set $%s so %s finds this brain from any directory.\n"+
-			"Add this line to %s, then open a new terminal:\n\n    %s\n",
-			brainconfig.EnvVar, name, profile, line)
+		_, _ = fmt.Fprintf(stderr, "\nNext, set $%s so %s finds this brain from any directory.\n", brainconfig.EnvVar, name)
+		if profile, line := shellHint(runtime.GOOS, os.Getenv("SHELL"), dir); line != "" {
+			_, _ = fmt.Fprintf(stderr, "Add this line to %s, then open a new terminal:\n\n    %s\n", profile, line)
+		} else {
+			_, _ = fmt.Fprintf(stderr, "Set it to %s in your shell's startup file.\n", dir)
+		}
 	}
 	return 0
 }
 
 // shellHint returns the shell profile to edit and the line that sets the
-// brain home to dir there, for the user's OS and $SHELL.
+// brain home to dir there, for the user's OS and $SHELL. The line is empty
+// for a shell it doesn't know the syntax of.
 func shellHint(goos, shell, dir string) (profile, line string) {
 	env := brainconfig.EnvVar
 	if goos == "windows" {
+		// A trailing \ would escape the closing quote; \\" is a \ then the quote.
+		if strings.HasSuffix(dir, `\`) {
+			dir += `\`
+		}
 		// setx stores it for the user; there is no profile to edit.
 		return "a terminal (it is saved for new ones)", `setx ` + env + ` "` + dir + `"`
 	}
-	// Single quotes keep the path literal in sh and fish alike.
-	quoted := "'" + strings.ReplaceAll(dir, "'", `'\''`) + "'"
+	export := "export " + env + "='" + strings.ReplaceAll(dir, "'", `'\''`) + "'"
 	switch filepath.Base(shell) {
 	case "fish":
-		return "~/.config/fish/config.fish", "set -gx " + env + " " + quoted
+		// In fish single quotes, \ and ' are escaped with a backslash.
+		quoted := strings.NewReplacer(`\`, `\\`, "'", `\'`).Replace(dir)
+		return "~/.config/fish/config.fish", "set -gx " + env + " '" + quoted + "'"
 	case "zsh":
-		return "~/.zshrc", "export " + env + "=" + quoted
+		return "~/.zshrc", export
 	case "bash":
 		if goos == "darwin" {
-			return "~/.bash_profile", "export " + env + "=" + quoted
+			return "~/.bash_profile", export
 		}
-		return "~/.bashrc", "export " + env + "=" + quoted
+		return "~/.bashrc", export
+	case "sh", "dash", "ksh", "mksh":
+		return "~/.profile", export
 	}
-	return "your shell profile", "export " + env + "=" + quoted
+	return "", ""
 }
 
 // initWrites says what init does to the config file for prog, for its usage.
