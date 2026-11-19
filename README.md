@@ -415,10 +415,21 @@ for every release platform, and the tests on the `go` version from go.mod.
 
 ## Releasing
 
-Both programs share one version, taken from the tag:
+Both programs share one version, taken from the tag. From an up-to-date `main`, run
+[`release.sh`](release.sh):
 
 ```sh
-git tag v0.1.0 && git push origin v0.1.0
+./release.sh patch        # or minor, major, or an exact version such as v1.0.0-rc1
+./release.sh -n minor     # dry run: check everything, tag nothing
+```
+
+It checks that `main` is clean and the same as `origin/main`, that the version is new and higher
+than every earlier tag, and runs the checks from [`CLAUDE.md`](CLAUDE.md). Then it shows the
+commits since the last release, asks for confirmation, and pushes an annotated tag. To tag by
+hand instead:
+
+```sh
+git tag -a v0.1.0 -m v0.1.0 && git push origin v0.1.0
 ```
 
 The `Release` workflow checks that the tag is on `main`, runs the tests, builds both programs for
