@@ -189,7 +189,8 @@ distribution to `<data dir>/python-build-standalone/<version>+<build options>/` 
 otherwise `%LOCALAPPDATA%` on Windows and `~/.local/share` elsewhere. It does nothing if the
 install directory already exists. Next to it, `init` points a symlink named `<major.minor>/`
 (for example `3.14`) at the install, so that path stays the same across patch upgrades. It always
-points at the build `init` installed or found last, whatever its build options. On Windows
+points at the build `init` installed or found last, whatever its build options: a run with
+`--python-version 3.14.2` moves it back to 3.14.2 even if 3.14.10 is installed. On Windows
 creating the link needs Developer Mode or an elevated shell; without it `init` prints a note and
 goes on.
 
