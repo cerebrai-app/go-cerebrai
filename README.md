@@ -395,8 +395,9 @@ can, since people may annotate the file.
 ## Supported Go versions
 
 The `go` line in `go.mod` is the oldest supported Go. CI tests with that version and with the
-latest stable Go, on Linux, macOS and Windows; releases are built with the latest stable Go. Raise it only when the code needs
-a newer release, and keep it within the [releases Go supports](https://go.dev/doc/devel/release#policy).
+latest stable Go, on Linux, macOS and Windows; releases are built with the latest stable Go. Raise
+it only when the code needs a newer release, and keep it within the [releases Go
+supports](https://go.dev/doc/devel/release#policy).
 
 ## Development
 

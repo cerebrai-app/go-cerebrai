@@ -47,19 +47,16 @@ func lockConfig(path string) (unlock func(), err error) {
 		mode |= info.Mode().Perm()
 	}
 	lp := lockPath(path)
+	// Refuse anything but a regular file, and check before opening it:
+	// opening a named pipe waits for a writer forever, macOS (unlike Linux)
+	// opens and flocks a directory, and Linux opens and flocks a device. So
+	// every platform and every extension agree on what the lock is.
+	if info, err := os.Stat(lp); err == nil && !info.Mode().IsRegular() {
+		return nil, fmt.Errorf("locking %s: the lock file %s is not a regular file: remove it and try again", path, lp)
+	}
 	f, err := os.OpenFile(lp, os.O_RDONLY|os.O_CREATE, mode)
 	if err != nil {
 		return nil, fmt.Errorf("locking %s: %w", path, err)
-	}
-	// Opening a directory read-only succeeds on macOS, where Linux refuses it,
-	// and flock works on it there; refuse anything but a regular file
-	// everywhere, so every platform and every extension agree on the lock.
-	if info, err := f.Stat(); err != nil || !info.Mode().IsRegular() {
-		_ = f.Close()
-		if err != nil {
-			return nil, fmt.Errorf("locking %s: %w", path, err)
-		}
-		return nil, fmt.Errorf("locking %s: the lock file %s is not a regular file: remove it and try again", path, lp)
 	}
 	deadline := time.Now().Add(lockTimeout)
 	for {
