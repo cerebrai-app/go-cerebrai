@@ -1,10 +1,9 @@
-package python
+package uv
 
 import (
 	"context"
 	"crypto/sha256"
 	"encoding/hex"
-	"encoding/json"
 	"errors"
 	"fmt"
 	"io"
@@ -16,15 +15,13 @@ import (
 )
 
 const (
-	latestReleaseURL   = "https://raw.githubusercontent.com/astral-sh/python-build-standalone/latest-release/latest-release.json"
-	releaseDownloadURL = "https://github.com/astral-sh/python-build-standalone/releases/download"
+	// releaseDownloadURL is where uv's releases are downloaded from.
+	releaseDownloadURL = "https://github.com/astral-sh/uv/releases/download"
 
 	connectTimeout = 30 * time.Second
 	// readTimeout ends a request whose response stalls for this long. There is
-	// no total timeout: the archive is large.
+	// no total timeout, for slow connections.
 	readTimeout = 60 * time.Second
-	// maxTextSize caps latest-release.json and SHA256SUMS, which are small.
-	maxTextSize = 16 << 20
 )
 
 // newClient returns a client that uses the system trust store and the proxy
@@ -89,23 +86,6 @@ func (r *response) Close() error {
 	return err
 }
 
-// httpText returns the body of url as a string.
-func httpText(client *http.Client, url string) (string, error) {
-	resp, err := get(client, url)
-	if err != nil {
-		return "", err
-	}
-	defer func() { _ = resp.Close() }()
-	body, err := io.ReadAll(io.LimitReader(resp, maxTextSize+1))
-	if err != nil {
-		return "", fmt.Errorf("reading %s: %w", url, err)
-	}
-	if len(body) > maxTextSize {
-		return "", fmt.Errorf("reading %s: larger than %d bytes", url, maxTextSize)
-	}
-	return string(body), nil
-}
-
 // download saves url to out and checks its SHA-256 against expectedSHA256.
 // Progress goes to progress, if not nil.
 func download(client *http.Client, url, out, expectedSHA256 string, progress io.Writer) error {
@@ -163,30 +143,4 @@ func copyVerified(r io.Reader, w io.Writer, total int64, expected string, progre
 		return fmt.Errorf("checksum mismatch: expected %s, got %s", expected, actual)
 	}
 	return nil
-}
-
-// latestTag looks up the newest python-build-standalone release.
-func latestTag(client *http.Client, url string) (string, error) {
-	body, err := httpText(client, url)
-	if err != nil {
-		return "", err
-	}
-	return tagFromLatestRelease(body)
-}
-
-// tagFromLatestRelease reads the release tag from latest-release.json. It
-// ends up in a URL, so it is checked by validateTag.
-func tagFromLatestRelease(body string) (string, error) {
-	var doc map[string]any
-	if err := json.Unmarshal([]byte(body), &doc); err != nil {
-		return "", fmt.Errorf("parsing latest-release.json: %w", err)
-	}
-	tag, ok := doc["tag"].(string)
-	if !ok {
-		return "", errors.New(`latest-release.json has no "tag"`)
-	}
-	if err := validateTag(tag); err != nil {
-		return "", err
-	}
-	return tag, nil
 }

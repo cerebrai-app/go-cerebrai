@@ -9,7 +9,7 @@ import (
 
 	"github.com/cerebrai-app/go-cerebrai/brainconfig"
 	"github.com/cerebrai-app/go-cerebrai/internal/buildinfo"
-	"github.com/cerebrai-app/go-cerebrai/internal/python"
+	"github.com/cerebrai-app/go-cerebrai/internal/uv"
 )
 
 var (
@@ -46,46 +46,22 @@ func TestUsageErrors(t *testing.T) {
 	}
 }
 
-// stubInstall replaces install, and installPipx with a stub that succeeds,
-// and runs the test in an empty current directory, so init's config file goes
-// there.
-func stubInstall(t *testing.T, err error) *python.Options {
+// stubInstall replaces setUp with a stub that fails with err, and runs the
+// test in an empty current directory, so init's config file goes there. It
+// returns the options setUp was last called with.
+func stubInstall(t *testing.T, err error) *uv.Options {
 	t.Helper()
 	t.Chdir(t.TempDir())
 	// The brain home is the current directory unless a test sets this.
 	t.Setenv(brainconfig.EnvVar, "")
-	var got python.Options
-	old := install
-	t.Cleanup(func() { install = old })
-	install = func(opts python.Options) (string, error) {
+	var got uv.Options
+	old := setUp
+	t.Cleanup(func() { setUp = old })
+	setUp = func(opts uv.Options) (uv.Result, error) {
 		got = opts
-		return "/data/python-build-standalone/x", err
+		return uv.Result{}, err
 	}
-	oldPipx := installPipx
-	t.Cleanup(func() { installPipx = oldPipx })
-	installPipx = func(string, python.Options) (string, error) { return "/data/pipx", nil }
 	return &got
-}
-
-func TestInitInstallsPipxIntoTheDistribution(t *testing.T) {
-	stubInstall(t, nil)
-	var dist string
-	installPipx = func(d string, _ python.Options) (string, error) {
-		dist = d
-		return "", nil
-	}
-	if code, _, stderr := run("init"); code != 0 {
-		t.Fatalf("got %d, %q", code, stderr)
-	}
-	if dist != "/data/python-build-standalone/x" {
-		t.Errorf("pipx installed into %q", dist)
-	}
-
-	installPipx = func(string, python.Options) (string, error) { return "", errors.New("pip failed") }
-	code, stdout, stderr := run("init")
-	if code != 1 || stdout != "" || !strings.HasSuffix(stderr, "\nerror: pip failed\n") {
-		t.Errorf("got %d, %q, %q", code, stdout, stderr)
-	}
 }
 
 func TestInitPassesOptions(t *testing.T) {
@@ -93,19 +69,23 @@ func TestInitPassesOptions(t *testing.T) {
 	if code, stdout, stderr := run("init"); code != 0 || stdout != "" {
 		t.Fatalf("got %d, %q, %q", code, stdout, stderr)
 	}
-	if got.PythonVersion != python.DefaultPythonVersion || got.Variant != "" || got.Log == nil {
+	if got.Python != uv.DefaultPython || got.Log == nil {
 		t.Errorf("defaults: %+v", *got)
 	}
 	for _, args := range [][]string{
-		{"init", "--python-version", "3.13.9", "--variant", "pgo+lto"},
-		{"init", "--python-version=3.13.9", "-variant=pgo+lto"},
+		{"init", "--python-version", "3.13.9"},
+		{"init", "-python-version=3.13.9"},
 	} {
 		if code, _, stderr := run(args...); code != 0 {
 			t.Fatalf("%q: got %d, %q", args, code, stderr)
 		}
-		if got.PythonVersion != "3.13.9" || got.Variant != "pgo+lto" {
+		if got.Python != "3.13.9" {
 			t.Errorf("%q: %+v", args, *got)
 		}
+	}
+	// --variant is gone: uv picks the build.
+	if code, _, _ := run("init", "--variant", "pgo+lto"); code != 2 {
+		t.Errorf("--variant: got %d, want 2", code)
 	}
 }
 

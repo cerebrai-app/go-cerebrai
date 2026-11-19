@@ -1,4 +1,4 @@
-package python
+package uv
 
 import (
 	"bytes"
@@ -6,6 +6,7 @@ import (
 	"io"
 	"net/http"
 	"net/http/httptest"
+	"path/filepath"
 	"strings"
 	"testing"
 )
@@ -56,23 +57,10 @@ type failingWriter struct{}
 
 func (failingWriter) Write([]byte) (int, error) { return 0, errWrite }
 
-func TestTagFromLatestReleaseIsValidated(t *testing.T) {
-	if tag, err := tagFromLatestRelease(`{"version":1,"tag":"20261026"}`); err != nil || tag != "20261026" {
-		t.Errorf("got %q, %v", tag, err)
-	}
-	for _, bad := range []string{
-		`{"tag":"../x"}`, `{"tag":"a/b"}`, `{"tag":""}`, `{"tag":42}`, `{"version":1}`, "not json", "[]",
-	} {
-		if tag, err := tagFromLatestRelease(bad); err == nil {
-			t.Errorf("%s: got %q", bad, tag)
-		}
-	}
-}
-
 func TestGetFailsOnHTTPErrors(t *testing.T) {
 	srv := httptest.NewServer(http.NotFoundHandler())
 	defer srv.Close()
-	_, err := httpText(&http.Client{}, srv.URL+"/missing")
+	err := download(&http.Client{}, srv.URL+"/missing", filepath.Join(t.TempDir(), "out"), helloSHA256, nil)
 	if err == nil || !strings.Contains(err.Error(), "404") {
 		t.Errorf("got %v", err)
 	}

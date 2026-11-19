@@ -18,18 +18,14 @@ import (
 
 	"github.com/cerebrai-app/go-cerebrai/brainconfig"
 	"github.com/cerebrai-app/go-cerebrai/internal/buildinfo"
-	"github.com/cerebrai-app/go-cerebrai/internal/python"
+	"github.com/cerebrai-app/go-cerebrai/internal/uv"
 )
 
 // brainconfigFile is the config file's path inside the brain home.
 var brainconfigFile = filepath.Join(brainconfig.DirName, brainconfig.FileName)
 
-// install is python.Install and installPipx is python.InstallPipx; tests
-// replace them.
-var (
-	install     = python.Install
-	installPipx = python.InstallPipx
-)
+// setUp is uv.SetUp; tests replace it.
+var setUp = uv.SetUp
 
 // Program describes the program Main runs.
 type Program struct {
@@ -60,8 +56,8 @@ func Main(prog Program, args []string, stdout, stderr io.Writer) int {
 
 commands:
   version     print the %[1]s version
-  init        set up %[2]s in the brain home, download a
-              python-build-standalone distribution and install pipx and uv
+  init        set up %[2]s in the brain home, and install uv and
+              Python into the brainctl directory
 %[4]s
 The brain home is $%[3]s if set, otherwise the current directory.
 Run "%[1]s <command> -h" for more about a command.
@@ -105,20 +101,16 @@ func runInit(prog Program, args []string, stderr io.Writer) int {
 	name := prog.Name
 	fs := flag.NewFlagSet(name+" init", flag.ContinueOnError)
 	fs.SetOutput(stderr)
-	opts := python.Options{Log: stderr}
-	fs.StringVar(&opts.PythonVersion, "python-version", python.DefaultPythonVersion,
-		`Python version to install: "3", "3.14" or exact like "3.14.15". Picks the newest version
-that has the preferred build; a note is printed if a newer one exists only as another build`)
-	fs.StringVar(&opts.Variant, "variant", "",
-		`exact build options to require, e.g. "pgo+lto" or "freethreaded+pgo+lto"
-(default `+python.DefaultVariant+`, falling back to the best available build)`)
+	opts := uv.Options{Log: stderr}
+	fs.StringVar(&opts.Python, "python-version", uv.DefaultPython,
+		`Python to install with uv: a version such as "3.14", "3.13.9", or "3.14t" for the
+free-threaded build`)
 	fs.Usage = func() {
 		_, _ = fmt.Fprintf(stderr, "usage: %s init [flags]\n\n"+
-			"%s, then downloads a python-build-standalone\n"+
-			"distribution into the data directory and installs pipx into it, with its\n"+
-			"environments, commands and manual pages in the data directory's pipx directory,\n"+
-			"then installs uv with that pipx.\n\nflags:\n",
-			name, initWrites(prog))
+			"%s, then installs uv %s, and Python with it, into the\n"+
+			"brainctl directory (~/.local/opt/brainctl, or %%LOCALAPPDATA%%\\brainctl on Windows),\n"+
+			"which nothing outside it uses.\n\nflags:\n",
+			name, initWrites(prog), uv.Version)
 		fs.PrintDefaults()
 	}
 	if err := fs.Parse(args); err != nil {
@@ -143,12 +135,7 @@ that has the preferred build; a note is printed if a newer one exists only as an
 		_, _ = fmt.Fprintf(stderr, "error: %v\n", err)
 		return 1
 	}
-	dist, err := install(opts)
-	if err != nil {
-		_, _ = fmt.Fprintf(stderr, "error: %v\n", err)
-		return 1
-	}
-	if _, err := installPipx(dist, opts); err != nil {
+	if _, err := setUp(opts); err != nil {
 		_, _ = fmt.Fprintf(stderr, "error: %v\n", err)
 		return 1
 	}
