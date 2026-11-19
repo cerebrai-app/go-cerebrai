@@ -58,6 +58,7 @@ commands:
   version     print the %[1]s version
   init        set up %[2]s in the brain home and download a
               python-build-standalone distribution
+  python      list the installed python-build-standalone distributions
 %[4]s
 The brain home is $%[3]s if set, otherwise the current directory.
 Run "%[1]s <command> -h" for more about a command.
@@ -86,6 +87,8 @@ Run "%[1]s <command> -h" for more about a command.
 		if prog.ExtensionID == "" {
 			return runExtensions(name, args[1:], stdout, stderr)
 		}
+	case "python":
+		return runPython(name, args[1:], stdout, stderr)
 	case "config":
 		return runConfig(prog, args[1:], stdout, stderr)
 	case "help", "-h", "-help", "--help":

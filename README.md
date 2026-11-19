@@ -77,8 +77,8 @@ Check the install with `brainctl version`.
 
 ## Usage
 
-`brainctl` and `workctl` have the same `version`, `init` and `config` commands; `extensions` is
-`brainctl`'s alone.
+`brainctl` and `workctl` have the same `version`, `init`, `python` and `config` commands;
+`extensions` is `brainctl`'s alone.
 
 ```sh
 brainctl version
@@ -87,6 +87,7 @@ brainctl init --python-version 3           # newest Python 3.x
 brainctl init --python-version 3.13.9      # exact version
 brainctl init --variant pgo+lto            # exact build options, no fallback
 brainctl extensions ls                     # the extensions brainctl can discover (also l, list)
+brainctl python ls                         # the installed Python distributions (also l, list)
 workctl config set env/client_id abc123    # set a value in workctl's settings
 workctl config get env/client_id           # print it
 workctl config unset env/client_id         # remove it
@@ -211,6 +212,20 @@ whatever paths or links the archive holds.
 
 On Linux, `init` picks the glibc or musl build by checking which C library `/bin/sh` uses, since
 the binaries themselves are static.
+
+### `python`
+
+`brainctl python ls` (or `l`, or `list`) prints the directory of each Python that `init`
+installed, one per line, oldest Python version first. It reads only the data directory: no
+network, no config file, and the brain home doesn't matter.
+
+```console
+$ brainctl python ls
+/home/me/.local/share/python-build-standalone/3.13.9+freethreaded+pgo+lto
+/home/me/.local/share/python-build-standalone/3.14.10+freethreaded+pgo+lto
+```
+
+With nothing installed, stdout is empty and a note goes to stderr.
 
 ### `extensions`
 
