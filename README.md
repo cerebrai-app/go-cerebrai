@@ -187,11 +187,11 @@ Then it downloads a [python-build-standalone](https://github.com/astral-sh/pytho
 distribution to `<data dir>/python-build-standalone/<version>+<build options>/` (for example
 `3.14.10+freethreaded+pgo+lto`). The data dir is `$XDG_DATA_HOME` if set to an absolute path,
 otherwise `%LOCALAPPDATA%` on Windows and `~/.local/share` elsewhere. It does nothing if the
-install directory already exists. Next to it, `init` points a symlink named
-`<major.minor>/` (for example `3.14`) at the install, so that path stays the same across patch
-upgrades. It always points at the build `init` installed or found last, whatever its build
-options. On Windows creating the link needs Developer
-Mode or an elevated shell; without it `init` prints a note and goes on.
+install directory already exists. Next to it, `init` points a symlink named `<major.minor>/`
+(for example `3.14`) at the install, so that path stays the same across patch upgrades. It always
+points at the build `init` installed or found last, whatever its build options. On Windows
+creating the link needs Developer Mode or an elevated shell; without it `init` prints a note and
+goes on.
 
 `init` looks up the latest release on every run, so it needs network access even when everything
 is already installed. It uses `HTTPS_PROXY` and the system's trusted certificates. A newer Python

@@ -53,6 +53,8 @@ func exists(name string) bool {
 // whatever link is there. The new link is made under a temporary name and
 // renamed over the old one, so readers never see link missing.
 func linkStable(target, link string) error {
+	// Also clears temp links of killed runs when nothing new is installed.
+	sweepStaleTemps(filepath.Dir(link), staleTempAge)
 	if fi, err := os.Lstat(link); err == nil && fi.Mode()&os.ModeSymlink == 0 {
 		return fmt.Errorf("%s exists and is not a symlink", link)
 	}
@@ -62,8 +64,12 @@ func linkStable(target, link string) error {
 		return err
 	}
 	if err := os.Rename(tmp, link); err != nil {
-		_ = os.Remove(tmp)
-		return err
+		// Windows can refuse to rename over a directory symlink: remove it
+		// first, leaving a brief moment without the link.
+		if os.Remove(link) != nil || os.Rename(tmp, link) != nil {
+			_ = os.Remove(tmp)
+			return err
+		}
 	}
 	return nil
 }

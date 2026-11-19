@@ -7,8 +7,8 @@
 // 3.14.10+freethreaded+pgo+lto), holding the archive's own python/ tree. If
 // that directory already exists nothing is downloaded. A sibling symlink
 // named <major.minor> (e.g. 3.14) points at the latest install of that
-// Python version, whichever build options it has, so its path survives patch upgrades. The data dir is
-// $XDG_DATA_HOME if set to an absolute path, otherwise %LOCALAPPDATA% on
+// Python version, whichever build options it has, so its path survives
+// patch upgrades. The data dir is $XDG_DATA_HOME if set to an absolute path, otherwise %LOCALAPPDATA% on
 // Windows and ~/.local/share elsewhere.
 //
 // Each archive is checked against the release's SHA256SUMS. That catches
