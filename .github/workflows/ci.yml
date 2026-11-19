@@ -25,7 +25,7 @@ jobs:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           persist-credentials: false
-      - uses: cerebrai-app/actions/go-lint@91f86f0569c8da94a882dd5b3fc57f1dae2ced4c # v4.0.0
+      - uses: cerebrai-app/actions/go-lint@3237aca92e00a561e1e5acab0fb34fbf6cace984 # v4.1.0
 
   # The latest stable Go with the race detector and a smoke test, and exactly
   # the go version from go.mod, so the declared minimum is a tested one.
@@ -44,7 +44,7 @@ jobs:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           persist-credentials: false
-      - uses: cerebrai-app/actions/go-test@91f86f0569c8da94a882dd5b3fc57f1dae2ced4c # v4.0.0
+      - uses: cerebrai-app/actions/go-test@3237aca92e00a561e1e5acab0fb34fbf6cace984 # v4.1.0
         with:
           go-version: ${{ matrix.go }}
           race: ${{ matrix.race }}
@@ -58,7 +58,7 @@ jobs:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           persist-credentials: false
-      - uses: cerebrai-app/actions/go-cross-build@91f86f0569c8da94a882dd5b3fc57f1dae2ced4c # v4.0.0
+      - uses: cerebrai-app/actions/go-cross-build@3237aca92e00a561e1e5acab0fb34fbf6cace984 # v4.1.0
 
   govulncheck:
     name: govulncheck
@@ -67,4 +67,4 @@ jobs:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           persist-credentials: false
-      - uses: cerebrai-app/actions/govulncheck@91f86f0569c8da94a882dd5b3fc57f1dae2ced4c # v4.0.0
+      - uses: cerebrai-app/actions/govulncheck@3237aca92e00a561e1e5acab0fb34fbf6cace984 # v4.1.0
