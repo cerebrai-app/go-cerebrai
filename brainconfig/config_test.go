@@ -66,7 +66,7 @@ func TestAddExtension(t *testing.T) {
 		{"new file", "schema_version: 1\n", "schema_version: 1\nextensions:\n  app.cerebrai.workctl:\n    schema_version: 1\n"},
 		{"keeps comments and other extensions",
 			"# my brain\nschema_version: 1 # format\n\nextensions:\n  other:\n    schema_version: 3 # keep\n",
-			// Blank lines are not kept: yaml.v3 does not record them.
+			// Blank lines are not kept: go-yaml does not record them.
 			"# my brain\nschema_version: 1 # format\nextensions:\n  other:\n    schema_version: 3 # keep\n  app.cerebrai.workctl:\n    schema_version: 1\n"},
 		{"empty extensions", "schema_version: 1\nextensions:\n", "schema_version: 1\nextensions:\n  app.cerebrai.workctl:\n    schema_version: 1\n"},
 		{"null extensions", "schema_version: 1\nextensions: null\n", "schema_version: 1\nextensions:\n  app.cerebrai.workctl:\n    schema_version: 1\n"},
