@@ -170,17 +170,29 @@ func TestNoLockFileWithoutConfig(t *testing.T) {
 	}
 }
 
+// Something other than a regular file where the lock file goes is an error on
+// every platform: macOS, unlike Linux, opens and flocks a directory, and
+// Linux opens and flocks a device.
 func TestLockFileCannotBeMade(t *testing.T) {
-	path := writeConfig(t, brainOnly)
-	// A directory where the lock file goes.
-	if err := os.Mkdir(lockPath(path), 0o700); err != nil {
-		t.Fatal(err)
-	}
-	if _, err := Set(path, TopLevel, "a", "b"); err == nil || !strings.Contains(err.Error(), "locking "+path) {
-		t.Errorf("Set: %v", err)
-	}
-	if got := readFile(t, path); got != brainOnly {
-		t.Errorf("file changed to %q", got)
+	for name, makeLock := range map[string]func(lp string) error{
+		"directory": func(lp string) error { return os.Mkdir(lp, 0o700) },
+		"device":    func(lp string) error { return os.Symlink(os.DevNull, lp) },
+	} {
+		t.Run(name, func(t *testing.T) {
+			if name == "device" && runtime.GOOS == "windows" {
+				t.Skip("no symlink to a device on Windows")
+			}
+			path := writeConfig(t, brainOnly)
+			if err := makeLock(lockPath(path)); err != nil {
+				t.Fatal(err)
+			}
+			if _, err := Set(path, TopLevel, "a", "b"); err == nil || !strings.Contains(err.Error(), "locking "+path) {
+				t.Errorf("Set: %v", err)
+			}
+			if got := readFile(t, path); got != brainOnly {
+				t.Errorf("file changed to %q", got)
+			}
+		})
 	}
 }
 

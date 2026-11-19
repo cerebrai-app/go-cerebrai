@@ -28,18 +28,20 @@ jobs:
       - uses: cerebrai-app/actions/go-lint@3237aca92e00a561e1e5acab0fb34fbf6cace984 # v4.1.0
 
   # The latest stable Go with the race detector and a smoke test, and exactly
-  # the go version from go.mod, so the declared minimum is a tested one.
+  # the go version from go.mod, so the declared minimum is a tested one; each
+  # on Linux, macOS and Windows, whose file locks and permissions differ.
+  # go-test runs Windows without the race detector.
   test:
-    name: Test (${{ matrix.go }})
-    runs-on: ubuntu-latest
+    name: Test (${{ matrix.platform.name }}, ${{ matrix.go }})
+    runs-on: ${{ matrix.platform.runner }}
     strategy:
       fail-fast: false
       matrix:
-        include:
-          - go: stable
-            race: 'true'
-          - go: go.mod
-            race: 'false'
+        platform:
+          - {name: Linux, runner: ubuntu-latest}
+          - {name: macOS, runner: macos-latest}
+          - {name: Windows, runner: windows-latest}
+        go: [stable, go.mod]
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
@@ -47,7 +49,7 @@ jobs:
       - uses: cerebrai-app/actions/go-test@3237aca92e00a561e1e5acab0fb34fbf6cace984 # v4.1.0
         with:
           go-version: ${{ matrix.go }}
-          race: ${{ matrix.race }}
+          race: ${{ matrix.go == 'stable' }}
           main-packages: ./cmd/brainctl ./cmd/workctl
           smoke-test-args: ${{ matrix.go == 'stable' && 'version' || '' }}
 
