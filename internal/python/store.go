@@ -9,6 +9,7 @@ import (
 	"os"
 	"path"
 	"path/filepath"
+	"runtime"
 	"slices"
 	"strings"
 	"sync/atomic"
@@ -65,11 +66,12 @@ func linkStable(target, link string) error {
 	}
 	if err := os.Rename(tmp, link); err != nil {
 		// Windows can refuse to rename over a directory symlink: remove it
-		// first, leaving a brief moment without the link.
-		// shortcut: untested off Windows, and if the second rename fails the
-		// link is gone until the next init; add a rename seam and test it if
+		// first, leaving a brief moment without the link. Elsewhere the
+		// rename is atomic, so a failure keeps the old link.
+		// shortcut: untested, and if the second rename fails the link is
+		// gone until the next init; add a rename seam and test it if
 		// Windows users hit this.
-		if os.Remove(link) != nil || os.Rename(tmp, link) != nil {
+		if runtime.GOOS != "windows" || os.Remove(link) != nil || os.Rename(tmp, link) != nil {
 			_ = os.Remove(tmp)
 			return err
 		}
