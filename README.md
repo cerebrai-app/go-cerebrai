@@ -196,8 +196,10 @@ uses the same one.
 
 The uv is a version pinned in `brainctl` (see [Updating uv](#updating-uv)), downloaded from uv's
 GitHub releases and checked against a SHA-256 built into `brainctl`, so a changed or corrupted
-download is refused. `init` does nothing more if that version is already in `bin`, and replaces
-any other version there. It only takes `uv`, `uvx` and `uvw.exe` from the archive, by name, so
+download is refused. `init` does nothing more if that version is already in `bin` with all of
+its files, puts back any that are missing, and replaces any other version. On Windows, a `uv.exe`
+that is running is moved aside to `uv.exe.<…>.old` and removed by a later `init`, since Windows
+won't replace a running program. It only takes `uv`, `uvx` and `uvw.exe` from the archive, by name, so
 nothing in it can be written anywhere else. On Linux it picks the glibc or musl build by checking
 which C library `/bin/sh` uses, since the binaries themselves are static. Downloads use
 `HTTPS_PROXY` and the system's trusted certificates.
@@ -232,9 +234,11 @@ malformed or lacks one of the variables above: run `brainctl init` to fix it. An
 an error that `init` leaves for you to fix rather than overwriting the file.
 
 Your own `UV_PYTHON`, `UV_PYTHON_PREFERENCE`, `UV_NO_MANAGED_PYTHON`, `UV_SYSTEM_PYTHON`,
-`UV_CONFIG_FILE` and `UV_NO_CACHE`, and the variables the file sets, are left out of that
-process's environment. Other variables pass through, so proxy settings, package indexes
-(`UV_INDEX_URL` and the like) and `UV_SYSTEM_CERTS` still apply, unless the file sets them.
+`UV_CONFIG_FILE`, `UV_NO_CACHE` and `UV_PYTHON_DOWNLOADS`, and the variables the file sets, are
+left out of that process's environment. Every other variable passes through on purpose, since it
+describes your network rather than where uv keeps things: proxy settings, package indexes
+(`UV_INDEX_URL` and the like), mirrors (`UV_PYTHON_INSTALL_MIRROR`), `UV_SYSTEM_CERTS` and
+`UV_OFFLINE` still apply, unless the file sets them.
 Running `~/.local/opt/brainctl/bin/uv` yourself doesn't read the file, so it acts like any other
 uv: run your own uv instead, and leave this one to `brainctl`.
 

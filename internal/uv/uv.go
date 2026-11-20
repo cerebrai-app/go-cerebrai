@@ -119,6 +119,8 @@ var droppedVars = []string{
 	"UV_PYTHON_BIN_DIR",
 	"UV_CACHE_DIR",
 	"UV_NO_CACHE",
+	// init must be able to download Python, whatever the user's uv may do.
+	"UV_PYTHON_DOWNLOADS",
 }
 
 // Env returns environ, such as os.Environ(), for a process brainctl runs:

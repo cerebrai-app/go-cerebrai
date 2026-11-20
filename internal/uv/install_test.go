@@ -14,6 +14,7 @@ import (
 	"runtime"
 	"strings"
 	"testing"
+	"time"
 )
 
 const (
@@ -155,6 +156,14 @@ func TestInstallSkipsTheInstalledVersion(t *testing.T) {
 	stubVersion(t, Version)
 	src, requests := serve(t, linuxTriple, nil)
 	d := NewDirs(t.TempDir())
+	if err := os.MkdirAll(d.Bin, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	for _, file := range binaries(linuxTriple) {
+		if err := os.WriteFile(filepath.Join(d.Bin, file), nil, 0o755); err != nil {
+			t.Fatal(err)
+		}
+	}
 	var log bytes.Buffer
 	if err := install(d, linuxTriple, src, Options{Log: &log}); err != nil {
 		t.Fatal(err)
@@ -239,5 +248,122 @@ func TestInstallIgnoresArchivePaths(t *testing.T) {
 	}
 	if _, err := os.Stat(filepath.Join(d.Bin, "other")); err == nil {
 		t.Error("extracted a file that isn't uv's")
+	}
+}
+
+// The right version with a file missing is repaired, not skipped.
+func TestInstallRepairsMissingFiles(t *testing.T) {
+	stubVersion(t, Version)
+	src, requests := serve(t, linuxTriple, tarGz(t, map[string]string{"x/uv": "new uv", "x/uvx": "new uvx"}))
+	d := NewDirs(t.TempDir())
+	if err := os.MkdirAll(d.Bin, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(d.Bin, "uv"), []byte("uv"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	var log bytes.Buffer
+	if err := install(d, linuxTriple, src, Options{Log: &log}); err != nil {
+		t.Fatal(err)
+	}
+	if *requests != 1 || readFile(t, filepath.Join(d.Bin, "uvx")) != "new uvx" {
+		t.Errorf("%d requests, uvx %q", *requests, readFile(t, filepath.Join(d.Bin, "uvx")))
+	}
+	if !strings.Contains(log.String(), "repairing uv "+Version) {
+		t.Errorf("log %q", log.String())
+	}
+}
+
+// stubRename makes renames onto a path in busy fail, as Windows does for a
+// running .exe, and passes the rest to os.Rename.
+func stubRename(t *testing.T, busy ...string) {
+	t.Helper()
+	old := rename
+	t.Cleanup(func() { rename = old })
+	rename = func(from, to string) error {
+		for _, b := range busy {
+			if to == b {
+				if _, err := os.Stat(to); err == nil {
+					return &os.LinkError{Op: "rename", Old: from, New: to, Err: os.ErrPermission}
+				}
+			}
+		}
+		return os.Rename(from, to)
+	}
+}
+
+func TestReplaceMovesARunningFileAside(t *testing.T) {
+	dir := t.TempDir()
+	dest, tmp, old := filepath.Join(dir, "uv.exe"), filepath.Join(dir, "uv.exe.1.tmp"), filepath.Join(dir, "uv.exe.1.old")
+	for name, body := range map[string]string{dest: "old uv", tmp: "new uv"} {
+		if err := os.WriteFile(name, []byte(body), 0o755); err != nil {
+			t.Fatal(err)
+		}
+	}
+	stubRename(t, dest)
+	if err := replace(tmp, dest, old); err != nil {
+		t.Fatal(err)
+	}
+	if got := readFile(t, dest); got != "new uv" {
+		t.Errorf("dest holds %q", got)
+	}
+	for _, gone := range []string{tmp, old} {
+		if _, err := os.Stat(gone); err == nil {
+			t.Errorf("left %s", gone)
+		}
+	}
+}
+
+func TestReplaceFailureSaysWhatToDo(t *testing.T) {
+	dir := t.TempDir()
+	dest, tmp, old := filepath.Join(dir, "uv.exe"), filepath.Join(dir, "uv.exe.1.tmp"), filepath.Join(dir, "uv.exe.1.old")
+	for name, body := range map[string]string{dest: "old uv", tmp: "new uv"} {
+		if err := os.WriteFile(name, []byte(body), 0o755); err != nil {
+			t.Fatal(err)
+		}
+	}
+	stubRename(t, dest, old) // it can't even be moved aside
+	if err := os.WriteFile(old, nil, 0o644); err != nil {
+		t.Fatal(err)
+	}
+	err := replace(tmp, dest, old)
+	if err == nil || !strings.Contains(err.Error(), "close the programs using it and run init again") {
+		t.Errorf("got %v", err)
+	}
+	if got := readFile(t, dest); got != "old uv" {
+		t.Errorf("dest holds %q", got)
+	}
+}
+
+func TestRemoveStale(t *testing.T) {
+	d := NewDirs(t.TempDir())
+	if err := os.MkdirAll(d.Bin, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	long := time.Now().Add(-2 * staleAge)
+	files := map[string]bool{ // path: removed
+		filepath.Join(d.Root, "uv.tar.gz.1.download"): true,  // old
+		filepath.Join(d.Root, "uv.tar.gz.2.download"): false, // may be in progress
+		filepath.Join(d.Bin, "uv.1.tmp"):              true,
+		filepath.Join(d.Bin, "uv.2.tmp"):              false,
+		filepath.Join(d.Bin, "uv.exe.3.old"):          true, // whatever its age
+		filepath.Join(d.Bin, "uv"):                    false,
+		filepath.Join(d.Root, "env"):                  false,
+	}
+	for name := range files {
+		if err := os.WriteFile(name, nil, 0o644); err != nil {
+			t.Fatal(err)
+		}
+		if strings.Contains(name, ".1.") {
+			if err := os.Chtimes(name, long, long); err != nil {
+				t.Fatal(err)
+			}
+		}
+	}
+	removeStale(d)
+	for name, removed := range files {
+		if _, err := os.Stat(name); (err != nil) != removed {
+			t.Errorf("%s: removed %v, want %v", name, err != nil, removed)
+		}
 	}
 }

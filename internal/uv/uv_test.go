@@ -76,6 +76,7 @@ func TestEnvKeepsUVInTheBrainctlDirectory(t *testing.T) {
 		"UV_CONFIG_FILE=/home/u/uv.toml",
 		"UV_CACHE_DIR=/home/u/.cache/uv",
 		"UV_TOOL_BIN_DIR=/home/u/.local/bin",
+		"UV_PYTHON_DOWNLOADS=never",
 	})
 	if err != nil {
 		t.Fatal(err)
