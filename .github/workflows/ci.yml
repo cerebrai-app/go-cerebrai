@@ -52,6 +52,12 @@ jobs:
           race: ${{ matrix.go == 'stable' }}
           main-packages: ./cmd/brainctl ./cmd/workctl
           smoke-test-args: ${{ matrix.go == 'stable' && 'version' || '' }}
+      # Downloads the real uv and Python (about 60 MB) and installs a tool with
+      # them, so only once per platform. go-test has set up Go.
+      - name: Integration test
+        if: matrix.go == 'stable'
+        shell: bash
+        run: go test -tags integration -run Integration -v ./internal/uv
 
   cross-build:
     name: Cross-build

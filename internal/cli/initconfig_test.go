@@ -9,7 +9,7 @@ import (
 	"testing"
 
 	"github.com/cerebrai-app/go-cerebrai/brainconfig"
-	"github.com/cerebrai-app/go-cerebrai/internal/python"
+	"github.com/cerebrai-app/go-cerebrai/internal/uv"
 )
 
 // The config file scenarios of init, end to end through Main: brainctl
@@ -24,13 +24,13 @@ const (
 	withWorkctl = "schema_version: 1\nextensions:\n  app.cerebrai.workctl:\n    schema_version: 1\n    name: workctl\n    bin: workctl\n"
 )
 
-// project runs the test in an empty current directory with install stubbed
-// out, and returns a pointer to the number of times install has run.
+// project runs the test in an empty current directory with setUp stubbed
+// out, and returns a pointer to the number of times setUp has run.
 func project(t *testing.T) *int {
 	t.Helper()
 	stubInstall(t, nil)
 	calls := 0
-	install = func(python.Options) (string, error) {
+	setUp = func(uv.Options) (uv.Result, error) {
 		// The config file is always settled before the download starts, in
 		// the brain home the program used.
 		dir, err := brainconfig.Home()
@@ -40,7 +40,7 @@ func project(t *testing.T) *int {
 			t.Errorf("install ran without a config file: %v", err)
 		}
 		calls++
-		return "", nil
+		return uv.Result{}, nil
 	}
 	return &calls
 }

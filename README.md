@@ -12,7 +12,7 @@ They replace the Rust [brainctl](https://github.com/cerebrai-app/brainctl) and
 | [`cmd/brainctl`](cmd/brainctl), [`cmd/workctl`](cmd/workctl) | the two programs; each only calls `cli.Main` with its name (and `workctl` with its extension ID and the schema version of its settings) |
 | [`internal/cli`](internal/cli) | the command line both programs share: `version`, `init` and `config`, and `brainctl`'s `extensions` |
 | [`brainconfig`](brainconfig) | reads and writes the brain config file, `.brain/config.yaml`, for `brainctl` and its extensions, including [third-party ones](#writing-an-extension) |
-| [`internal/python`](internal/python) | downloads, verifies and unpacks [python-build-standalone](https://github.com/astral-sh/python-build-standalone) distributions (the port of the `cerebrai-python` crate) |
+| [`internal/uv`](internal/uv) | installs a pinned [uv](https://docs.astral.sh/uv/) into the brainctl directory, installs Python with it, and runs it apart from any uv of the user's |
 | [`internal/buildinfo`](internal/buildinfo) | `buildinfo.Version()`: the version the release links in from the tag, else the module version from `go install`, else `dev` |
 
 Shared code lives under `internal/`, so only these programs can import it and it has no API of
@@ -82,10 +82,9 @@ Check the install with `brainctl version`.
 
 ```sh
 brainctl version
-brainctl init                              # Python 3.14, freethreaded+pgo+lto
-brainctl init --python-version 3           # newest Python 3.x
+brainctl init                              # uv, and Python 3.14 free-threaded (3.14t)
+brainctl init --python-version 3.14        # Python 3.14 with the GIL
 brainctl init --python-version 3.13.9      # exact version
-brainctl init --variant pgo+lto            # exact build options, no fallback
 brainctl extensions ls                     # the extensions brainctl can discover (also l, list)
 workctl config set env/client_id abc123    # set a value in workctl's settings
 workctl config get env/client_id           # print it
@@ -183,34 +182,69 @@ dropped and indentation becomes two spaces.
 any extension, including ones it has never heard of, and a broken extension's settings can't stop
 it.
 
-Then it downloads a [python-build-standalone](https://github.com/astral-sh/python-build-standalone)
-distribution to `<data dir>/python-build-standalone/<version>+<build options>/` (for example
-`3.14.10+freethreaded+pgo+lto`). The data dir is `$XDG_DATA_HOME` if set to an absolute path,
-otherwise `%LOCALAPPDATA%` on Windows and `~/.local/share` elsewhere. It does nothing if the
-install directory already exists.
+Then `init` installs [uv](https://docs.astral.sh/uv/), and Python with it, into the **brainctl
+directory**: `~/.local/opt/brainctl`, or `%LOCALAPPDATA%\brainctl` on Windows. `workctl init`
+uses the same one.
 
-`init` looks up the latest release on every run, so it needs network access even when everything
-is already installed. It uses `HTTPS_PROXY` and the system's trusted certificates. A newer Python
-patch version in a newer release installs into a new directory next to the old one. Older
-directories are never removed (each is a few hundred MB): delete the ones you no longer need by
-hand. A later release that rebuilds the *same* Python version is not picked up: `init` finds the
-existing directory and does nothing, so delete it if you want the newer build.
+| Directory | What goes there |
+| --- | --- |
+| `bin` | `uv` and `uvx` (and `uvw.exe` on Windows), and the commands of the Pythons and tools uv installs, such as `python3.14t` |
+| `python` | the Pythons uv installs |
+| `tools` | the tools uv installs (`uv tool install`) |
+| `cache` | uv's cache |
+| `env` | the environment brainctl runs uv and its tools in (see below) |
 
-`--python-version` takes a Python version (`3`, `3.14` or `3.14.15`), never a
-python-build-standalone release date. The preferred build comes first, then the newest matching
-version that has it: if a newer Python exists only as another build (say 3.15 without a
-free-threaded build), `init` prints a note and installs the older one with the preferred build.
-Pass `--variant` to require a specific build.
+The uv is a version pinned in `brainctl` (see [Updating uv](#updating-uv)), downloaded from uv's
+GitHub releases and checked against a SHA-256 built into `brainctl`, so a changed or corrupted
+download is refused. `init` does nothing more if that version is already in `bin` with all of
+its files, puts back any that are missing, and replaces any other version. On Windows, a `uv.exe`
+that is running is moved aside to `uv.exe.<…>.old` and removed by a later `init`, since Windows
+won't replace a running program. It only takes `uv`, `uvx` and `uvw.exe` from the archive, by name, so
+nothing in it can be written anywhere else. On Linux it picks the glibc or musl build by checking
+which C library `/bin/sh` uses, since the binaries themselves are static. Downloads use
+`HTTPS_PROXY` and the system's trusted certificates.
 
-The default is the newest Python 3.14 `freethreaded+pgo+lto` build. If that build isn't published
-for your platform (e.g. Windows has no LTO builds) it falls back to the next best build and says
-so. Downloads are checked against the release's `SHA256SUMS`, which catches corrupt or truncated
-downloads. The checksums come from the same GitHub release as the archive, so this does not
-protect against a compromised release. Unpacking cannot write outside the install directory,
-whatever paths or links the archive holds.
+Then `init` runs `uv python install` for `--python-version`, by default `3.14t`: the newest
+Python 3.14, free-threaded. It takes anything uv does, such as `3.14`, `3.13.9` or `3.14t`. uv
+downloads Python only if that version isn't installed yet, and checks the download itself. On
+Windows, `init` passes `--no-registry`, so the Python isn't registered where other programs would
+find it.
 
-On Linux, `init` picks the glibc or musl build by checking which C library `/bin/sh` uses, since
-the binaries themselves are static.
+**This uv is kept apart from any uv you have.** `init` first writes the **environment file**,
+`env` in the brainctl directory, and `brainctl` reads it every time it starts uv or a tool uv
+installed, and sets its variables for that process. They keep uv in the brainctl directory, so it
+never uses your uv's settings, Pythons, tools or cache, and never changes them:
+
+```sh
+UV_PYTHON_INSTALL_DIR=~/.local/opt/brainctl/python   # written as absolute paths
+UV_PYTHON_BIN_DIR=~/.local/opt/brainctl/bin
+UV_TOOL_DIR=~/.local/opt/brainctl/tools
+UV_TOOL_BIN_DIR=~/.local/opt/brainctl/bin
+UV_CACHE_DIR=~/.local/opt/brainctl/cache
+UV_MANAGED_PYTHON=1   # only the Pythons in the brainctl directory, never the system's or yours
+UV_NO_CONFIG=1        # ignore uv.toml files and [tool.uv] settings
+```
+
+Each line is `NAME=value`, with nothing quoted: the value runs to the end of the line. Lines
+starting with `#` are comments. `init` sets these variables back to these values every time it
+runs, since changing them would undo the separation, and keeps anything else in the file. Add your
+own variables to it to set them for `brainctl`'s tools alone, for example a package index:
+`UV_INDEX_URL=https://pypi.example/simple`. `brainctl` refuses to run uv if the file is missing,
+malformed or lacks one of the variables above: run `brainctl init` to fix it. An invalid line is
+an error that `init` leaves for you to fix rather than overwriting the file.
+
+Your own `UV_PYTHON`, `UV_PYTHON_PREFERENCE`, `UV_NO_MANAGED_PYTHON`, `UV_SYSTEM_PYTHON`,
+`UV_CONFIG_FILE`, `UV_NO_CACHE` and `UV_PYTHON_DOWNLOADS`, and the variables the file sets, are
+left out of that process's environment. Every other variable passes through on purpose, since it
+describes your network rather than where uv keeps things: proxy settings, package indexes
+(`UV_INDEX_URL` and the like), mirrors (`UV_PYTHON_INSTALL_MIRROR`), `UV_SYSTEM_CERTS` and
+`UV_OFFLINE` still apply, unless the file sets them.
+Running `~/.local/opt/brainctl/bin/uv` yourself doesn't read the file, so it acts like any other
+uv: run your own uv instead, and leave this one to `brainctl`.
+
+Earlier releases of `brainctl` installed Python into
+`~/.local/share/python-build-standalone` (`%LOCALAPPDATA%\python-build-standalone` on Windows).
+Nothing uses that any more: delete it to free the space.
 
 ### `extensions`
 
@@ -418,6 +452,28 @@ from [cerebrai-app/actions](https://github.com/cerebrai-app/actions) (`go-lint`,
 `go-cross-build` and `govulncheck`), along with golangci-lint, govulncheck, a build and `go vet`
 for every release platform, and the tests on Linux, macOS and Windows, each also on the `go`
 version from go.mod. Windows runs the tests without `-race`.
+
+An integration test installs the real uv and Python (about 60 MB of downloads) into a temporary
+brainctl directory, installs a tool with that uv, and checks that everything runs and lands in the
+brainctl directory, even with a `uv.toml` and `UV_*` variables of the user's pointing elsewhere,
+and that the environment file is repaired and its variables reach the processes `brainctl` runs. It needs network access, so it only runs with the `integration` build tag. CI runs it
+after the tests on each platform, with the latest Go only:
+
+```sh
+go test -tags integration -run Integration -v ./internal/uv
+```
+
+### Updating uv
+
+`internal/uv/release.go` holds the pinned uv version and the SHA-256 of its archive for each
+platform, from the release's `sha256.sum`. It is generated: change the version on the
+`//go:generate` line in `internal/uv/uv.go`, then run
+
+```sh
+go generate ./internal/uv
+```
+
+and commit both files. Renovate doesn't update it.
 
 ## Releasing
 
